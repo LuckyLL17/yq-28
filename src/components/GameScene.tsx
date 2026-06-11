@@ -4,13 +4,14 @@ import { OrbitControls, Sky, Stars, Environment, SoftShadows } from '@react-thre
 import { EffectComposer, Bloom, Vignette, ChromaticAberration } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { useGameStore, MaterialType, generateId } from '@/store/gameStore';
+import { useGameStore, MaterialType, generateId, materialProperties } from '@/store/gameStore';
 import { usePhysics } from '@/hooks/usePhysics';
 import { Block } from './Block';
 import { generateBuilding, generateCastle } from './BuildingGenerator';
 import { Particles, ExplosionEffect, spawnParticles } from './Particles';
 import { WeaponSystem, WeaponAimIndicator } from './WeaponSystem';
 import { ControlPanel } from './ControlPanel';
+import { DebrisSystem } from './DebrisSystem';
 
 interface ExplosionInstance {
   id: string;
@@ -105,6 +106,7 @@ export function GameScene() {
   const [explosions, setExplosions] = useState<ExplosionInstance[]>([]);
   const [buildingGenerated, setBuildingGenerated] = useState(false);
   const initRef = useRef(false);
+  const spawnDebrisRef = useRef<((position: [number, number, number], size: [number, number, number], material: MaterialType) => void) | null>(null);
 
   const handleDestroyBlock = useCallback((position: [number, number, number], material: MaterialType) => {
     requestAnimationFrame(() => {
@@ -112,40 +114,78 @@ export function GameScene() {
     });
   }, []);
 
+  const handleSpawnDebris = useCallback((position: [number, number, number], size: [number, number, number], material: MaterialType) => {
+    if (spawnDebrisRef.current) {
+      spawnDebrisRef.current(position, size, material);
+    }
+  }, []);
+
+  const registerSpawner = useCallback((spawner: (position: [number, number, number], size: [number, number, number], material: MaterialType) => void) => {
+    spawnDebrisRef.current = spawner;
+  }, []);
+
   const handleExplosion = useCallback((position: [number, number, number], radius: number) => {
     const id = generateId();
     setExplosions((prev) => [...prev, { id, position, radius }]);
 
     requestAnimationFrame(() => {
-      const particles = useGameStore.getState().particles;
-      const addParticle = useGameStore.getState().addParticle;
+      const state = useGameStore.getState();
+      const blocks = state.blocks;
+      const damageBlock = state.damageBlock;
+      const addParticle = state.addParticle;
 
-      const colors = ['#ff6600', '#ffaa00', '#ff3300', '#ffff00', '#ff8844'];
-      for (let i = 0; i < 60; i++) {
+      const [px, py, pz] = position;
+      const damageRadius = radius * 1.5;
+
+      blocks.forEach((block, blockId) => {
+        const [bx, by, bz] = block.position;
+        const dx = bx - px;
+        const dy = by - py;
+        const dz = bz - pz;
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+        if (dist < damageRadius) {
+          const falloff = 1 - dist / damageRadius;
+          const baseDamage = materialProperties[block.material].health;
+          const damage = baseDamage * falloff * 2.5 + 20;
+
+          if (damageBlock(blockId, damage)) {
+            requestAnimationFrame(() => {
+              spawnParticles([bx, by, bz], block.material, block.material === 'glass' ? 30 : 20);
+              if (spawnDebrisRef.current) {
+                spawnDebrisRef.current([bx, by, bz], block.size, block.material);
+              }
+            });
+          }
+        }
+      });
+
+      const colors = ['#ff6600', '#ffaa00', '#ff3300', '#ffff00', '#ff8844', '#ffcc00'];
+      for (let i = 0; i < 100; i++) {
         const angle = Math.random() * Math.PI * 2;
         const upAngle = Math.random() * Math.PI;
-        const speed = 8 + Math.random() * 20;
+        const speed = 10 + Math.random() * 25;
         const vx = Math.cos(angle) * Math.sin(upAngle) * speed;
-        const vy = Math.cos(upAngle) * speed + 8;
+        const vy = Math.cos(upAngle) * speed + 10;
         const vz = Math.sin(angle) * Math.sin(upAngle) * speed;
 
         addParticle({
           id: generateId(),
           position: [
-            position[0] + (Math.random() - 0.5),
-            position[1] + (Math.random() - 0.5),
-            position[2] + (Math.random() - 0.5),
+            position[0] + (Math.random() - 0.5) * 1.5,
+            position[1] + (Math.random() - 0.5) * 1.5,
+            position[2] + (Math.random() - 0.5) * 1.5,
           ],
           velocity: [vx, vy, vz],
           color: colors[Math.floor(Math.random() * colors.length)],
-          size: 0.2 + Math.random() * 0.4,
-          life: 1.5 + Math.random() * 2,
-          maxLife: 3.5,
+          size: 0.25 + Math.random() * 0.5,
+          life: 2 + Math.random() * 2.5,
+          maxLife: 4.5,
         });
       }
 
-      spawnParticles(position, 'concrete', 30);
-      spawnParticles(position, 'wood', 20);
+      spawnParticles(position, 'concrete', 40);
+      spawnParticles(position, 'wood', 30);
     });
   }, []);
 
@@ -157,17 +197,18 @@ export function GameScene() {
     resetGame();
     setBuildingGenerated(false);
     initRef.current = false;
+    setWreckingBallActive(false);
 
     setTimeout(() => {
       const buildingBlocks = type === 'building'
         ? generateBuilding({ width: 7, height: 5, depth: 5, blockSize: [1.2, 0.6, 1.2] })
         : generateCastle({ width: 9, height: 4, depth: 7, blockSize: [1, 0.5, 1] });
 
-      useGameStore.getState().addBlocks(buildingBlocks);
+      addBlocks(buildingBlocks);
       setBuildingGenerated(true);
       initRef.current = true;
     }, 100);
-  }, [resetGame]);
+  }, [resetGame, addBlocks, setWreckingBallActive]);
 
   const handleReset = useCallback(() => {
     resetGame();
@@ -178,20 +219,20 @@ export function GameScene() {
 
     setTimeout(() => {
       const buildingBlocks = generateBuilding({ width: 7, height: 5, depth: 5, blockSize: [1.2, 0.6, 1.2] });
-      useGameStore.getState().addBlocks(buildingBlocks);
+      addBlocks(buildingBlocks);
       setBuildingGenerated(true);
       initRef.current = true;
     }, 200);
-  }, [resetGame, setWreckingBallActive]);
+  }, [resetGame, addBlocks, setWreckingBallActive]);
 
   useEffect(() => {
     if (!initRef.current) {
       initRef.current = true;
       const buildingBlocks = generateBuilding({ width: 7, height: 5, depth: 5, blockSize: [1.2, 0.6, 1.2] });
-      useGameStore.getState().addBlocks(buildingBlocks);
+      addBlocks(buildingBlocks);
       setBuildingGenerated(true);
     }
-  }, []);
+  }, [addBlocks]);
 
   const blockArray = Array.from(blocks.values());
 
@@ -199,15 +240,15 @@ export function GameScene() {
     <div className="w-full h-screen bg-black relative overflow-hidden">
       <Canvas
         shadows
-        camera={{ position: [8, 12, 22], fov: 50, near: 0.1, far: 200 }}
+        camera={{ position: [0, 12, -25], fov: 50, near: 0.1, far: 200 }}
         gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
         dpr={[1, 2]}
         onCreated={({ camera, scene }) => {
-          camera.lookAt(0, 4, 0);
+          camera.lookAt(0, 3, 0);
         }}
       >
-        <color attach="background" args={['#0a0a15']} />
-        <fog attach="fog" args={['#0a0a15', 40, 80]} />
+        <color attach="background" args={['#1a1a2e']} />
+        <fog attach="fog" args={['#1a1a2e', 50, 100]} />
 
         <SceneLighting />
         <Sky
@@ -237,10 +278,18 @@ export function GameScene() {
             removePhysicsBody={removeBody}
             getPhysicsBody={getBody}
             onDestroy={handleDestroyBlock}
+            spawnDebris={handleSpawnDebris}
           />
         ))}
 
-        <Particles maxParticles={800} />
+        <DebrisSystem
+          addPhysicsBody={addBody}
+          removePhysicsBody={removeBody}
+          getPhysicsBody={getBody}
+          registerSpawner={registerSpawner}
+        />
+
+        <Particles maxParticles={1000} />
 
         {explosions.map((explosion) => (
           <ExplosionEffect
@@ -270,7 +319,7 @@ export function GameScene() {
           maxPolarAngle={Math.PI / 2 - 0.05}
           minPolarAngle={0.1}
           makeDefault
-          target={[0, 4, 0]}
+          target={[0, 3, 0]}
         />
 
         <PhysicsStepper step={step} />

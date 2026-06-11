@@ -21,6 +21,17 @@ interface Projectile {
   exploded?: boolean;
 }
 
+interface WreckingBallState {
+  ballMesh: THREE.Mesh;
+  ballBody: CANNON.Body;
+  chainPoints: THREE.Vector3[];
+  anchorBody: CANNON.Body;
+  constraint: CANNON.Constraint;
+  isDragging: boolean;
+  dragStartPos: THREE.Vector3;
+  aimLine: THREE.Line;
+}
+
 export function WeaponSystem({
   addPhysicsBody,
   removePhysicsBody,
@@ -36,17 +47,123 @@ export function WeaponSystem({
   const setWreckingBallActive = useGameStore((s) => s.setWreckingBallActive);
 
   const projectilesRef = useRef<Map<string, Projectile>>(new Map());
-  const wreckingBallRef = useRef<{
-    ballMesh: THREE.Mesh;
-    ballBody: CANNON.Body;
-    chainPoints: THREE.Vector3[];
-    anchorBody: CANNON.Body;
-    constraint: CANNON.Constraint;
-  } | null>(null);
+  const wreckingBallRef = useRef<WreckingBallState | null>(null);
   const wreckingBallGroupRef = useRef<THREE.Group | null>(null);
   const cooldownTimerRef = useRef(0);
-
+  const launcherRef = useRef<THREE.Group | null>(null);
+  const launcherRecoilRef = useRef(0);
+  const recoilTargetRef = useRef(0);
+  const muzzleFlashRef = useRef(0);
+  const lastWeaponRef = useRef<WeaponType | null>(null);
   const wreckingBallId = 'wreckingBall';
+
+  const createLauncher = useCallback((currentWeapon: WeaponType) => {
+    if (launcherRef.current) {
+      scene.remove(launcherRef.current);
+      launcherRef.current.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry.dispose();
+          if (Array.isArray(child.material)) {
+            child.material.forEach((m) => m.dispose());
+          } else {
+            child.material.dispose();
+          }
+        }
+      });
+      launcherRef.current = null;
+    }
+
+    if (currentWeapon === 'wreckingBall') return;
+
+    const group = new THREE.Group();
+
+    const mainBodyGeo = new THREE.BoxGeometry(0.15, 0.15, 0.4);
+    const mainBodyMat = new THREE.MeshStandardMaterial({
+      color: '#3a3a3a',
+      metalness: 0.9,
+      roughness: 0.2,
+    });
+    const mainBody = new THREE.Mesh(mainBodyGeo, mainBodyMat);
+    mainBody.position.z = -0.1;
+    group.add(mainBody);
+
+    const barrelGeo = new THREE.CylinderGeometry(0.08, 0.06, 0.3, 16);
+    const barrelMat = new THREE.MeshStandardMaterial({
+      color: '#2a2a2a',
+      metalness: 0.95,
+      roughness: 0.1,
+    });
+    const barrel = new THREE.Mesh(barrelGeo, barrelMat);
+    barrel.rotation.x = -Math.PI / 2;
+    barrel.position.z = -0.35;
+    group.add(barrel);
+
+    const muzzleGeo = new THREE.CylinderGeometry(0.1, 0.08, 0.05, 16);
+    const muzzleMat = new THREE.MeshStandardMaterial({
+      color: '#1a1a1a',
+      metalness: 0.9,
+      roughness: 0.1,
+    });
+    const muzzle = new THREE.Mesh(muzzleGeo, muzzleMat);
+    muzzle.rotation.x = -Math.PI / 2;
+    muzzle.position.z = -0.55;
+    group.add(muzzle);
+
+    const gripGeo = new THREE.BoxGeometry(0.12, 0.2, 0.15);
+    const gripMat = new THREE.MeshStandardMaterial({
+      color: currentWeapon === 'explosive' ? '#8B0000' : '#4a3728',
+      metalness: 0.3,
+      roughness: 0.7,
+    });
+    const grip = new THREE.Mesh(gripGeo, gripMat);
+    grip.position.y = -0.15;
+    grip.position.z = 0.05;
+    group.add(grip);
+
+    const scopeGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.15, 12);
+    const scopeMat = new THREE.MeshStandardMaterial({
+      color: '#1a1a1a',
+      metalness: 0.9,
+      roughness: 0.2,
+    });
+    const scope = new THREE.Mesh(scopeGeo, scopeMat);
+    scope.rotation.x = -Math.PI / 2;
+    scope.position.y = 0.1;
+    scope.position.z = -0.15;
+    group.add(scope);
+
+    if (currentWeapon === 'explosive') {
+      const indicatorGeo = new THREE.BoxGeometry(0.08, 0.08, 0.08);
+      const indicatorMat = new THREE.MeshStandardMaterial({
+        color: '#ff3300',
+        emissive: '#ff0000',
+        emissiveIntensity: 0.5,
+        metalness: 0.5,
+        roughness: 0.5,
+      });
+      const indicator = new THREE.Mesh(indicatorGeo, indicatorMat);
+      indicator.position.y = 0.12;
+      indicator.position.z = 0.1;
+      group.add(indicator);
+    }
+
+    const muzzleFlashGeo = new THREE.SphereGeometry(0.12, 16, 16);
+    const muzzleFlashMat = new THREE.MeshBasicMaterial({
+      color: currentWeapon === 'explosive' ? '#ff6600' : '#00ffff',
+      transparent: true,
+      opacity: 0,
+    });
+    const muzzleFlash = new THREE.Mesh(muzzleFlashGeo, muzzleFlashMat);
+    muzzleFlash.position.z = -0.65;
+    muzzleFlash.name = 'muzzleFlash';
+    group.add(muzzleFlash);
+
+    group.position.set(0.3, -0.2, -0.5);
+
+    camera.add(group);
+
+    launcherRef.current = group;
+  }, [camera, scene]);
 
   const createWreckingBall = useCallback(() => {
     if (wreckingBallRef.current) return;
@@ -91,6 +208,25 @@ export function WeaponSystem({
     ballMesh.receiveShadow = true;
     group.add(ballMesh);
 
+    const spikeGeo = new THREE.ConeGeometry(0.2, 0.6, 8);
+    const spikeMat = new THREE.MeshStandardMaterial({
+      color: '#666666',
+      metalness: 0.9,
+      roughness: 0.2,
+    });
+    for (let i = 0; i < 8; i++) {
+      const spike = new THREE.Mesh(spikeGeo, spikeMat);
+      const angle = (i / 8) * Math.PI * 2;
+      spike.position.set(
+        Math.cos(angle) * ballRadius * 0.85,
+        (Math.random() - 0.5) * ballRadius * 0.6,
+        Math.sin(angle) * ballRadius * 0.85
+      );
+      spike.lookAt(spike.position.clone().multiplyScalar(2));
+      spike.scale.set(1, 1.5, 1);
+      group.add(spike);
+    }
+
     const chainPoints: THREE.Vector3[] = [];
     const chainSegments = 15;
     const chainGeometry = new THREE.CylinderGeometry(0.08, 0.08, 1, 8);
@@ -107,6 +243,18 @@ export function WeaponSystem({
       chainPoints.push(new THREE.Vector3());
     }
 
+    const aimLineGeo = new THREE.BufferGeometry();
+    const aimLineMat = new THREE.LineDashedMaterial({
+      color: '#ff6600',
+      linewidth: 3,
+      dashSize: 0.3,
+      gapSize: 0.15,
+      transparent: true,
+      opacity: 0,
+    });
+    const aimLine = new THREE.Line(aimLineGeo, aimLineMat);
+    group.add(aimLine);
+
     scene.add(group);
     wreckingBallGroupRef.current = group;
 
@@ -116,6 +264,9 @@ export function WeaponSystem({
       chainPoints,
       anchorBody,
       constraint,
+      isDragging: false,
+      dragStartPos: new THREE.Vector3(),
+      aimLine,
     };
 
     setWreckingBallActive(true);
@@ -175,6 +326,15 @@ export function WeaponSystem({
     mesh.position.copy(startPos);
     scene.add(mesh);
 
+    const trailGeo = new THREE.SphereGeometry(ballRadius * 0.6, 12, 12);
+    const trailMat = new THREE.MeshBasicMaterial({
+      color: '#00ffff',
+      transparent: true,
+      opacity: 0.6,
+    });
+    const trail = new THREE.Mesh(trailGeo, trailMat);
+    mesh.add(trail);
+
     const shape = new CANNON.Sphere(ballRadius);
     const body = new CANNON.Body({
       mass: ballMass,
@@ -204,6 +364,9 @@ export function WeaponSystem({
       body,
       life: 8,
     });
+
+    recoilTargetRef.current = 0.3;
+    muzzleFlashRef.current = 0.2;
   }, [camera, addPhysicsBody, scene]);
 
   const fireExplosive = useCallback(() => {
@@ -232,6 +395,16 @@ export function WeaponSystem({
     mesh.position.copy(startPos);
     scene.add(mesh);
 
+    const fuseGeo = new THREE.CylinderGeometry(0.03, 0.02, 0.15, 8);
+    const fuseMat = new THREE.MeshStandardMaterial({
+      color: '#333333',
+      emissive: '#ff6600',
+      emissiveIntensity: 1,
+    });
+    const fuse = new THREE.Mesh(fuseGeo, fuseMat);
+    fuse.position.y = ballRadius + 0.07;
+    mesh.add(fuse);
+
     const shape = new CANNON.Sphere(ballRadius);
     const body = new CANNON.Body({
       mass: ballMass,
@@ -257,7 +430,32 @@ export function WeaponSystem({
       life: 10,
       exploded: false,
     });
+
+    recoilTargetRef.current = 0.4;
+    muzzleFlashRef.current = 0.3;
   }, [camera, addPhysicsBody, scene]);
+
+  useEffect(() => {
+    if (weapon !== lastWeaponRef.current) {
+      lastWeaponRef.current = weapon;
+      if (weapon !== 'wreckingBall') {
+        createLauncher(weapon);
+      } else if (launcherRef.current) {
+        scene.remove(launcherRef.current);
+        launcherRef.current.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            child.geometry.dispose();
+            if (Array.isArray(child.material)) {
+              child.material.forEach((m) => m.dispose());
+            } else {
+              child.material.dispose();
+            }
+          }
+        });
+        launcherRef.current = null;
+      }
+    }
+  }, [weapon, createLauncher, scene]);
 
   useEffect(() => {
     if (weapon === 'wreckingBall' && !wreckingBallActive) {
@@ -270,6 +468,10 @@ export function WeaponSystem({
   useEffect(() => {
     const handleMouseDown = (e: MouseEvent) => {
       if (e.button !== 0 || shootCooldown) return;
+
+      const target = e.target as HTMLElement;
+      if (target.closest('button') || target.closest('[role="button"]')) return;
+
       if (weapon === 'steelBall') {
         fireSteelBall();
         setShootCooldown(true);
@@ -279,26 +481,73 @@ export function WeaponSystem({
         setShootCooldown(true);
         cooldownTimerRef.current = 0.8;
       } else if (weapon === 'wreckingBall') {
-        if (wreckingBallRef.current) {
-          const pushDirection = new THREE.Vector3(
-            (Math.random() - 0.5) * 2,
-            0.5,
-            Math.random()
-          ).normalize();
-          wreckingBallRef.current.ballBody.applyImpulse(
-            new CANNON.Vec3(
-              pushDirection.x * 800,
-              pushDirection.y * 400,
-              pushDirection.z * 800
-            ),
-            wreckingBallRef.current.ballBody.position
+        if (wreckingBallRef.current && !wreckingBallRef.current.isDragging) {
+          wreckingBallRef.current.isDragging = true;
+          wreckingBallRef.current.dragStartPos.set(
+            e.clientX,
+            e.clientY,
+            0
           );
+          const aimLine = wreckingBallRef.current.aimLine;
+          (aimLine.material as THREE.LineDashedMaterial).opacity = 0.8;
         }
       }
     };
 
+    const handleMouseMove = (e: MouseEvent) => {
+      if (weapon === 'wreckingBall' && wreckingBallRef.current?.isDragging) {
+        const dx = (e.clientX - wreckingBallRef.current.dragStartPos.x);
+        const dy = (e.clientY - wreckingBallRef.current.dragStartPos.y);
+
+        const ballBody = wreckingBallRef.current.ballBody;
+        const ballPos = new THREE.Vector3(
+          ballBody.position.x,
+          ballBody.position.y,
+          ballBody.position.z
+        );
+        const anchorPos = new THREE.Vector3(0, 25, -8);
+
+        const aimEnd = ballPos.clone();
+        aimEnd.x += dx * 0.03;
+        aimEnd.y -= dy * 0.02;
+        aimEnd.z += dy * 0.02;
+
+        const points = [ballPos, aimEnd];
+        wreckingBallRef.current.aimLine.geometry.setFromPoints(points);
+        wreckingBallRef.current.aimLine.computeLineDistances();
+      }
+    };
+
+    const handleMouseUp = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+
+      if (weapon === 'wreckingBall' && wreckingBallRef.current?.isDragging) {
+        const dx = (e.clientX - wreckingBallRef.current.dragStartPos.x);
+        const dy = (e.clientY - wreckingBallRef.current.dragStartPos.y);
+
+        const impulseX = dx * 15;
+        const impulseZ = -dy * 12;
+        const impulseY = Math.max(0, -dy * 8) + 100;
+
+        wreckingBallRef.current.ballBody.applyImpulse(
+          new CANNON.Vec3(impulseX, impulseY, impulseZ),
+          wreckingBallRef.current.ballBody.position
+        );
+
+        wreckingBallRef.current.isDragging = false;
+        (wreckingBallRef.current.aimLine.material as THREE.LineDashedMaterial).opacity = 0;
+      }
+    };
+
     window.addEventListener('mousedown', handleMouseDown);
-    return () => window.removeEventListener('mousedown', handleMouseDown);
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      window.removeEventListener('mousedown', handleMouseDown);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
   }, [weapon, shootCooldown, fireSteelBall, fireExplosive, setShootCooldown]);
 
   useFrame((_, delta) => {
@@ -309,8 +558,27 @@ export function WeaponSystem({
       }
     }
 
+    if (launcherRef.current) {
+      launcherRecoilRef.current += (recoilTargetRef.current - launcherRecoilRef.current) * delta * 15;
+      recoilTargetRef.current *= Math.pow(0.01, delta);
+
+      launcherRef.current.position.z = -0.5 + launcherRecoilRef.current;
+
+      if (muzzleFlashRef.current > 0) {
+        muzzleFlashRef.current -= delta;
+        const muzzleFlash = launcherRef.current.getObjectByName('muzzleFlash') as THREE.Mesh;
+        if (muzzleFlash && muzzleFlash.material instanceof THREE.MeshBasicMaterial) {
+          muzzleFlash.material.opacity = Math.max(0, muzzleFlashRef.current / 0.2);
+          muzzleFlash.scale.setScalar(1 + (1 - muzzleFlash.material.opacity) * 2);
+        }
+      }
+
+      const bobOffset = Math.sin(performance.now() * 0.002) * 0.005;
+      launcherRef.current.position.y = -0.2 + bobOffset;
+    }
+
     if (wreckingBallRef.current && wreckingBallGroupRef.current) {
-      const { ballBody, ballMesh, chainPoints, anchorBody } = wreckingBallRef.current;
+      const { ballBody, ballMesh, chainPoints, anchorBody, aimLine } = wreckingBallRef.current;
       const group = wreckingBallGroupRef.current;
 
       ballMesh.position.set(ballBody.position.x, ballBody.position.y, ballBody.position.z);
@@ -353,6 +621,11 @@ export function WeaponSystem({
           link.scale.y = anchorPos.distanceTo(ballPos) / (chainSegments + 1);
         }
       }
+
+      if (wreckingBallRef.current.isDragging) {
+        const hue = (performance.now() * 0.001) % 1;
+        (aimLine.material as THREE.LineDashedMaterial).color.setHSL(hue, 1, 0.6);
+      }
     }
 
     const projectilesToRemove: string[] = [];
@@ -373,6 +646,14 @@ export function WeaponSystem({
         body.quaternion.w
       );
 
+      if (projectile.type === 'steelBall') {
+        const trail = projectile.mesh.children[0] as THREE.Mesh;
+        if (trail && trail.material instanceof THREE.MeshBasicMaterial) {
+          trail.material.opacity = Math.min(1, body.velocity.length() / 30) * 0.8;
+          trail.scale.setScalar(0.5 + body.velocity.length() / 60);
+        }
+      }
+
       if (projectile.type === 'explosive' && !projectile.exploded) {
         const impactVelocity = body.velocity.length();
         if (impactVelocity < 8 && projectile.life < 9) {
@@ -385,6 +666,11 @@ export function WeaponSystem({
           applyExplosion(pos, 8, 15000);
           onExplosion(pos, 8);
           projectile.life = 0.1;
+        }
+
+        const fuse = projectile.mesh.children[0] as THREE.Mesh;
+        if (fuse && fuse.material instanceof THREE.MeshStandardMaterial) {
+          fuse.material.emissiveIntensity = 0.8 + Math.sin(performance.now() * 0.02) * 0.5;
         }
       }
 

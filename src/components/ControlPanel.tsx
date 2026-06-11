@@ -188,8 +188,12 @@ export function ControlPanel({ onReset, onRegenerateBuilding }: ControlPanelProp
             {weapon === 'wreckingBall' ? (
               <>
                 <div className="flex items-center gap-2 text-white/80">
-                  <span className="px-2 py-0.5 rounded bg-white/10 text-white font-mono text-xs">左键</span>
-                  <span>推动铁球摆动</span>
+                  <span className="px-2 py-0.5 rounded bg-white/10 text-white font-mono text-xs">左键拖拽</span>
+                  <span>瞄准落锤方向</span>
+                </div>
+                <div className="flex items-center gap-2 text-white/80">
+                  <span className="px-2 py-0.5 rounded bg-white/10 text-white font-mono text-xs">释放</span>
+                  <span>释放推动铁球</span>
                 </div>
                 <div className="flex items-center gap-2 text-white/80">
                   <span className="px-2 py-0.5 rounded bg-white/10 text-white font-mono text-xs">鼠标</span>
@@ -199,7 +203,7 @@ export function ControlPanel({ onReset, onRegenerateBuilding }: ControlPanelProp
                   <div className="mt-2 p-2 rounded-lg bg-emerald-500/20 border border-emerald-500/30">
                     <div className="text-emerald-300 text-xs flex items-center gap-1">
                       <Eye className="w-3 h-3" />
-                      落锤已部署
+                      拖拽瞄准 → 释放挥动
                     </div>
                   </div>
                 )}
