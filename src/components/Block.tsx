@@ -75,7 +75,7 @@ export function Block({
 
   useEffect(() => {
     const props = materialProperties[material];
-    const halfSize: [number, number, number] = [size[0] / 2, size[1] / 2, size[2] / 2];
+    const halfSize: [number, number, number] = [size[0] / 2 * 0.92, size[1] / 2 * 0.92, size[2] / 2 * 0.92];
     const volume = size[0] * size[1] * size[2];
     const mass = props.density * volume * 0.000001;
 
@@ -94,7 +94,15 @@ export function Block({
 
     (body as any).userData = { blockId: id, blockMaterial: material, blockSize: size };
 
+    body.sleep();
+
     let creationTime = performance.now();
+
+    const yOffset = Math.max(0, position[1]);
+    const wakeDelay = 500 + yOffset * 350 + Math.random() * 300;
+    const wakeTimer = setTimeout(() => {
+      body.wakeUp();
+    }, wakeDelay);
 
     body.addEventListener('collide', (event: any) => {
       const age = performance.now() - creationTime;
@@ -103,7 +111,7 @@ export function Block({
       const otherBody = event.body;
       const otherUserData = (otherBody as any).userData;
       const isWeaponImpact =
-        otherBody?.id === 'wreckingBall' ||
+        otherUserData?.isWreckingBall === true ||
         otherUserData?.isProjectile === true ||
         otherUserData?.isDebris === true;
 
@@ -129,6 +137,7 @@ export function Block({
     addPhysicsBody(id, body);
 
     return () => {
+      clearTimeout(wakeTimer);
       removePhysicsBody(id);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

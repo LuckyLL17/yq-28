@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Sky, Stars, Environment, SoftShadows } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette, ChromaticAberration } from '@react-three/postprocessing';
 import * as THREE from 'three';
@@ -23,6 +23,17 @@ function PhysicsStepper({ step }: { step: (delta: number) => void }) {
   useFrame((_, delta) => {
     step(Math.min(delta, 1 / 30));
   });
+  return null;
+}
+
+function DebugExporter() {
+  const { scene, camera } = useThree();
+  useEffect(() => {
+    const w = window as any;
+    w.__SCENE__ = scene;
+    w.__CAMERA__ = camera;
+    w.__USE_STORE__ = useGameStore;
+  }, [scene, camera]);
   return null;
 }
 
@@ -99,12 +110,15 @@ export function GameScene() {
     addBody,
     removeBody,
     getBody,
+    addConstraint,
+    removeConstraint,
     step,
     applyExplosion,
   } = usePhysics();
 
   const [explosions, setExplosions] = useState<ExplosionInstance[]>([]);
   const [buildingGenerated, setBuildingGenerated] = useState(false);
+  const [rebuildCounter, setRebuildCounter] = useState(0);
   const initRef = useRef(false);
   const spawnDebrisRef = useRef<((position: [number, number, number], size: [number, number, number], material: MaterialType) => void) | null>(null);
 
@@ -196,6 +210,7 @@ export function GameScene() {
   const handleRegenerateBuilding = useCallback((type: 'building' | 'castle') => {
     initRef.current = false;
     setWreckingBallActive(false);
+    setRebuildCounter((c) => c + 1);
 
     const buildingBlocks = type === 'building'
       ? generateBuilding({ width: 7, height: 5, depth: 5, blockSize: [1.2, 0.6, 1.2] })
@@ -211,6 +226,7 @@ export function GameScene() {
     initRef.current = false;
     setExplosions([]);
     setWreckingBallActive(false);
+    setRebuildCounter((c) => c + 1);
 
     const buildingBlocks = generateBuilding({ width: 7, height: 5, depth: 5, blockSize: [1.2, 0.6, 1.2] });
 
@@ -245,6 +261,8 @@ export function GameScene() {
         <SceneLighting />
 
         <SoftShadows size={15} samples={10} focus={0.5} />
+
+        <DebugExporter />
 
         <Ground />
 
@@ -285,8 +303,11 @@ export function GameScene() {
           addPhysicsBody={addBody}
           removePhysicsBody={removeBody}
           getPhysicsBody={getBody}
+          addConstraint={addConstraint}
+          removeConstraint={removeConstraint}
           applyExplosion={applyExplosion}
           onExplosion={handleExplosion}
+          rebuildCounter={rebuildCounter}
         />
 
         <WeaponAimIndicator />

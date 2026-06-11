@@ -8,8 +8,11 @@ interface WeaponSystemProps {
   addPhysicsBody: (id: string, body: CANNON.Body) => void;
   removePhysicsBody: (id: string) => void;
   getPhysicsBody: (id: string) => CANNON.Body | undefined;
+  addConstraint: (constraint: CANNON.Constraint) => boolean;
+  removeConstraint: (constraint: CANNON.Constraint) => void;
   applyExplosion: (position: [number, number, number], radius: number, force: number) => void;
   onExplosion: (position: [number, number, number], radius: number) => void;
+  rebuildCounter: number;
 }
 
 interface Projectile {
@@ -27,6 +30,7 @@ interface WreckingBallState {
   chainPoints: THREE.Vector3[];
   anchorBody: CANNON.Body;
   constraint: CANNON.Constraint;
+  constraintAdded: boolean;
   isDragging: boolean;
   dragStartPos: THREE.Vector3;
   aimLine: THREE.Line;
@@ -36,8 +40,11 @@ export function WeaponSystem({
   addPhysicsBody,
   removePhysicsBody,
   getPhysicsBody,
+  addConstraint,
+  removeConstraint,
   applyExplosion,
   onExplosion,
+  rebuildCounter,
 }: WeaponSystemProps) {
   const { camera, scene } = useThree();
   const weapon = useGameStore((s) => s.weapon);
@@ -191,15 +198,12 @@ export function WeaponSystem({
       sleepSpeedLimit: 0.01,
       sleepTimeLimit: 0.01,
     });
-    (ballBody as any).id = 'wreckingBall';
-    (ballBody as any).userData = { isProjectile: true };
+    (ballBody as any).userData = { isWreckingBall: true };
     ballBody.sleep();
     addPhysicsBody(wreckingBallId, ballBody);
 
     const constraint = new CANNON.DistanceConstraint(anchorBody, ballBody, 3);
-    if (useGameStore.getState().world) {
-      useGameStore.getState().world!.addConstraint(constraint);
-    }
+    const constraintAdded = addConstraint(constraint);
 
     const group = new THREE.Group();
 
@@ -270,20 +274,20 @@ export function WeaponSystem({
       chainPoints,
       anchorBody,
       constraint,
+      constraintAdded,
       isDragging: false,
       dragStartPos: new THREE.Vector3(),
       aimLine,
     };
 
     setWreckingBallActive(true);
-  }, [addPhysicsBody, scene, setWreckingBallActive]);
+  }, [addPhysicsBody, addConstraint, scene, setWreckingBallActive]);
 
   const removeWreckingBall = useCallback(() => {
     if (!wreckingBallRef.current) return;
 
-    const world = useGameStore.getState().world;
-    if (world && wreckingBallRef.current.constraint) {
-      world.removeConstraint(wreckingBallRef.current.constraint);
+    if (wreckingBallRef.current.constraintAdded) {
+      removeConstraint(wreckingBallRef.current.constraint);
     }
 
     removePhysicsBody('wreckingAnchor');
@@ -306,7 +310,7 @@ export function WeaponSystem({
 
     wreckingBallRef.current = null;
     setWreckingBallActive(false);
-  }, [removePhysicsBody, scene, setWreckingBallActive]);
+  }, [removePhysicsBody, removeConstraint, scene, setWreckingBallActive]);
 
   const fireSteelBall = useCallback(() => {
     const id = `steelBall_${Date.now()}_${Math.random()}`;
@@ -466,6 +470,17 @@ export function WeaponSystem({
   }, [weapon, createLauncher, scene]);
 
   useEffect(() => {
+    if (rebuildCounter === 0) return;
+    removeWreckingBall();
+    const t = setTimeout(() => {
+      if (useGameStore.getState().weapon === 'wreckingBall') {
+        createWreckingBall();
+      }
+    }, 100);
+    return () => clearTimeout(t);
+  }, [rebuildCounter, removeWreckingBall, createWreckingBall]);
+
+  useEffect(() => {
     if (weapon === 'wreckingBall' && !wreckingBallActive) {
       createWreckingBall();
     } else if (weapon !== 'wreckingBall' && wreckingBallActive) {
@@ -593,6 +608,12 @@ export function WeaponSystem({
     if (wreckingBallRef.current && wreckingBallGroupRef.current) {
       const { ballBody, ballMesh, chainPoints, anchorBody, aimLine } = wreckingBallRef.current;
       const group = wreckingBallGroupRef.current;
+
+      if (!wreckingBallRef.current.constraintAdded) {
+        if (addConstraint(wreckingBallRef.current.constraint)) {
+          wreckingBallRef.current.constraintAdded = true;
+        }
+      }
 
       ballMesh.position.set(ballBody.position.x, ballBody.position.y, ballBody.position.z);
       ballMesh.quaternion.set(

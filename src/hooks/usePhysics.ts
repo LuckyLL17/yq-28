@@ -65,6 +65,20 @@ export const usePhysics = () => {
     }
   }, []);
 
+  const addConstraint = useCallback((constraint: CANNON.Constraint) => {
+    if (worldRef.current) {
+      worldRef.current.addConstraint(constraint);
+      return true;
+    }
+    return false;
+  }, []);
+
+  const removeConstraint = useCallback((constraint: CANNON.Constraint) => {
+    if (worldRef.current) {
+      worldRef.current.removeConstraint(constraint);
+    }
+  }, []);
+
   const applyExplosion = useCallback((position: [number, number, number], radius: number, force: number) => {
     if (!worldRef.current) return;
     const [px, py, pz] = position;
@@ -94,6 +108,8 @@ export const usePhysics = () => {
     addBody,
     removeBody,
     getBody,
+    addConstraint,
+    removeConstraint,
     step,
     applyExplosion,
   };

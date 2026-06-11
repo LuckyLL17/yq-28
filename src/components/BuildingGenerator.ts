@@ -93,11 +93,15 @@ export function generateBuilding(config: BuildingConfig): BlockData[] {
 
     for (let cw = 0; cw < width; cw += 3) {
       for (let cd = 0; cd < depth; cd += 3) {
+        const cwIsWall = cw === 0 || cw === width - 1;
+        const cdIsWall = cd === 0 || cd === depth - 1;
+        if (cwIsWall || cdIsWall) continue;
+
         const cx = (cw - width / 2) * blockW + blockW / 2;
         const cz = (cd - depth / 2) * blockD + blockD / 2;
         for (let subFloor = 0; subFloor < 2; subFloor++) {
-          const cy = y + subFloor * blockH;
-          blocks.push(createBlock(cx, cy, cz, blockW * 0.7, blockH * 0.9, blockD * 0.7, 'concrete'));
+          const cy = y + subFloor * blockH * 1.1 - blockH * 0.05;
+          blocks.push(createBlock(cx, cy, cz, blockW * 0.65, blockH * 0.85, blockD * 0.65, 'concrete'));
         }
       }
     }
@@ -138,10 +142,15 @@ export function generateCastle(config: BuildingConfig): BlockData[] {
         blocks.push(createBlock(x, y, z, blockW * 0.95, blockH * 0.95, blockD * 0.95, 'concrete'));
 
         if (subY === 0) {
-          blocks.push(createBlock(x + blockW * 0.5, y, z, blockW * 0.3, blockH * 0.95, blockD * 0.3, 'concrete'));
-          blocks.push(createBlock(x - blockW * 0.5, y, z, blockW * 0.3, blockH * 0.95, blockD * 0.3, 'concrete'));
-          blocks.push(createBlock(x, y, z + blockD * 0.5, blockW * 0.3, blockH * 0.95, blockD * 0.3, 'concrete'));
-          blocks.push(createBlock(x, y, z - blockD * 0.5, blockW * 0.3, blockH * 0.95, blockD * 0.3, 'concrete'));
+          const mainHalfW = blockW * 0.95 / 2;
+          const mainHalfD = blockD * 0.95 / 2;
+          const smallHalfW = blockW * 0.3 / 2;
+          const smallHalfD = blockD * 0.3 / 2;
+          const gap = 0.02;
+          blocks.push(createBlock(x + mainHalfW + smallHalfW + gap, y, z, blockW * 0.3, blockH * 0.95, blockD * 0.3, 'concrete'));
+          blocks.push(createBlock(x - mainHalfW - smallHalfW - gap, y, z, blockW * 0.3, blockH * 0.95, blockD * 0.3, 'concrete'));
+          blocks.push(createBlock(x, y, z + mainHalfD + smallHalfD + gap, blockW * 0.3, blockH * 0.95, blockD * 0.3, 'concrete'));
+          blocks.push(createBlock(x, y, z - mainHalfD - smallHalfD - gap, blockW * 0.3, blockH * 0.95, blockD * 0.3, 'concrete'));
         }
       }
     }
