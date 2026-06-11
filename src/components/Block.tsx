@@ -1,0 +1,167 @@
+import { useRef, useEffect, useState } from 'react';
+import { useFrame } from '@react-three/fiber';
+import * as THREE from 'three';
+import * as CANNON from 'cannon-es';
+import { useGameStore, MaterialType, materialProperties, generateId, BlockData } from '@/store/gameStore';
+
+interface BlockProps {
+  id: string;
+  position: [number, number, number];
+  size: [number, number, number];
+  material: MaterialType;
+  addPhysicsBody: (id: string, body: CANNON.Body) => void;
+  removePhysicsBody: (id: string) => void;
+  getPhysicsBody: (id: string) => CANNON.Body | undefined;
+  onDestroy: (position: [number, number, number], material: MaterialType) => void;
+}
+
+export function Block({
+  id,
+  position,
+  size,
+  material,
+  addPhysicsBody,
+  removePhysicsBody,
+  getPhysicsBody,
+  onDestroy,
+}: BlockProps) {
+  const meshRef = useRef<THREE.Mesh>(null);
+  const materialRef = useRef<THREE.MeshStandardMaterial | null>(null);
+  const [opacity, setOpacity] = useState(1);
+  const [destroyed, setDestroyed] = useState(false);
+  const blockData = useGameStore((s) => s.blocks.get(id));
+  const damageBlock = useGameStore((s) => s.damageBlock);
+  const damageFlash = useRef(0);
+
+  useEffect(() => {
+    const properties = materialProperties[material];
+    const halfSize: [number, number, number] = [size[0] / 2, size[1] / 2, size[2] / 2];
+    const volume = size[0] * size[1] * size[2];
+    const mass = properties.density * volume * 0.000001;
+
+    const shape = new CANNON.Box(new CANNON.Vec3(halfSize[0], halfSize[1], halfSize[2]));
+    const body = new CANNON.Body({
+      mass: mass > 0 ? mass : 1,
+      shape,
+      position: new CANNON.Vec3(position[0], position[1], position[2]),
+      material: new CANNON.Material({ friction: 0.6, restitution: 0.05 }),
+      linearDamping: 0.15,
+      angularDamping: 0.25,
+      allowSleep: true,
+      sleepSpeedLimit: 0.15,
+      sleepTimeLimit: 0.5,
+    });
+
+    let creationTime = performance.now();
+
+    body.addEventListener('collide', (event: any) => {
+      const age = performance.now() - creationTime;
+      if (age < 500) return;
+
+      const impactVelocity = event.contact.getImpactVelocityAlongNormal();
+      if (impactVelocity > 4) {
+        const damage = impactVelocity * 5;
+        damageFlash.current = 0.3;
+        if (damageBlock(id, damage)) {
+          setDestroyed(true);
+          if (meshRef.current) {
+            const pos = meshRef.current.position;
+            onDestroy([pos.x, pos.y, pos.z], material);
+          }
+        }
+      }
+    });
+
+    addPhysicsBody(id, body);
+
+    return () => {
+      removePhysicsBody(id);
+    };
+  }, [id, position, size, material, addPhysicsBody, removePhysicsBody, damageBlock, onDestroy]);
+
+  useFrame((_, delta) => {
+    const body = getPhysicsBody(id);
+    if (body && meshRef.current && !destroyed) {
+      meshRef.current.position.x = body.position.x;
+      meshRef.current.position.y = body.position.y;
+      meshRef.current.position.z = body.position.z;
+      meshRef.current.quaternion.x = body.quaternion.x;
+      meshRef.current.quaternion.y = body.quaternion.y;
+      meshRef.current.quaternion.z = body.quaternion.z;
+      meshRef.current.quaternion.w = body.quaternion.w;
+    }
+
+    if (damageFlash.current > 0 && materialRef.current) {
+      damageFlash.current -= delta;
+      const intensity = Math.max(0, damageFlash.current / 0.3);
+      materialRef.current.emissiveIntensity = intensity * 2;
+    } else if (materialRef.current) {
+      materialRef.current.emissiveIntensity = 0;
+    }
+
+    if (destroyed) {
+      const newOpacity = opacity - delta * 3;
+      if (newOpacity <= 0) {
+        setOpacity(0);
+      } else {
+        setOpacity(newOpacity);
+      }
+    }
+  });
+
+  const properties = materialProperties[material];
+  const isGlass = material === 'glass';
+  const healthPercent = blockData ? blockData.health / blockData.maxHealth : 1;
+
+  if (destroyed && opacity <= 0) return null;
+
+  return (
+    <mesh
+      ref={meshRef}
+      position={position}
+      castShadow
+      receiveShadow
+      visible={!destroyed || opacity > 0}
+    >
+      <boxGeometry args={size} />
+      <meshStandardMaterial
+        ref={materialRef}
+        color={properties.color}
+        transparent={isGlass || destroyed}
+        opacity={destroyed ? opacity : (isGlass ? 0.6 : 1)}
+        roughness={material === 'wood' ? 0.8 : material === 'concrete' ? 0.9 : 0.1}
+        metalness={material === 'concrete' ? 0.1 : material === 'glass' ? 0.9 : 0.05}
+        emissive={properties.color}
+        emissiveIntensity={0}
+        envMapIntensity={isGlass ? 1.5 : 1}
+      />
+      {healthPercent < 0.7 && healthPercent > 0 && !destroyed && (
+        <meshStandardMaterial
+          attach="material"
+          color={properties.color}
+          transparent
+          opacity={0.3 * (1 - healthPercent)}
+          roughness={0.9}
+        />
+      )}
+    </mesh>
+  );
+}
+
+export function createBlockData(
+  position: [number, number, number],
+  size: [number, number, number],
+  material: MaterialType
+): BlockData {
+  const properties = materialProperties[material];
+  return {
+    id: generateId(),
+    position,
+    size,
+    material,
+    health: properties.health,
+    maxHealth: properties.health,
+  };
+}
+
+export default Block;
