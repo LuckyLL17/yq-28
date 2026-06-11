@@ -61,10 +61,10 @@ function Ground() {
 function SceneLighting() {
   return (
     <>
-      <ambientLight intensity={0.4} color="#8899ff" />
+      <ambientLight intensity={0.7} color="#ffffff" />
       <directionalLight
-        position={[15, 25, 15]}
-        intensity={1.5}
+        position={[15, 30, 15]}
+        intensity={2.2}
         castShadow
         shadow-mapSize-width={2048}
         shadow-mapSize-height={2048}
@@ -80,9 +80,9 @@ function SceneLighting() {
           args={[-30, 30, 30, -30, 0.1, 100]}
         />
       </directionalLight>
-      <pointLight position={[-10, 8, -10]} intensity={0.5} color="#ff8866" distance={50} />
-      <pointLight position={[10, 12, 10]} intensity={0.4} color="#6688ff" distance={50} />
-      <hemisphereLight intensity={0.3} color="#88ccff" groundColor="#445566" />
+      <pointLight position={[-10, 10, -10]} intensity={0.8} color="#ffaa88" distance={60} />
+      <pointLight position={[10, 12, 10]} intensity={0.6} color="#88aaff" distance={60} />
+      <hemisphereLight intensity={0.6} color="#aaccff" groundColor="#667788" />
     </>
   );
 }
@@ -194,35 +194,30 @@ export function GameScene() {
   }, []);
 
   const handleRegenerateBuilding = useCallback((type: 'building' | 'castle') => {
-    resetGame();
-    setBuildingGenerated(false);
     initRef.current = false;
     setWreckingBallActive(false);
 
-    setTimeout(() => {
-      const buildingBlocks = type === 'building'
-        ? generateBuilding({ width: 7, height: 5, depth: 5, blockSize: [1.2, 0.6, 1.2] })
-        : generateCastle({ width: 9, height: 4, depth: 7, blockSize: [1, 0.5, 1] });
+    const buildingBlocks = type === 'building'
+      ? generateBuilding({ width: 7, height: 5, depth: 5, blockSize: [1.2, 0.6, 1.2] })
+      : generateCastle({ width: 9, height: 4, depth: 7, blockSize: [1, 0.5, 1] });
 
-      addBlocks(buildingBlocks);
-      setBuildingGenerated(true);
-      initRef.current = true;
-    }, 100);
+    resetGame();
+    addBlocks(buildingBlocks);
+    setBuildingGenerated(true);
+    initRef.current = true;
   }, [resetGame, addBlocks, setWreckingBallActive]);
 
   const handleReset = useCallback(() => {
-    resetGame();
-    setBuildingGenerated(false);
     initRef.current = false;
     setExplosions([]);
     setWreckingBallActive(false);
 
-    setTimeout(() => {
-      const buildingBlocks = generateBuilding({ width: 7, height: 5, depth: 5, blockSize: [1.2, 0.6, 1.2] });
-      addBlocks(buildingBlocks);
-      setBuildingGenerated(true);
-      initRef.current = true;
-    }, 200);
+    const buildingBlocks = generateBuilding({ width: 7, height: 5, depth: 5, blockSize: [1.2, 0.6, 1.2] });
+
+    resetGame();
+    addBlocks(buildingBlocks);
+    setBuildingGenerated(true);
+    initRef.current = true;
   }, [resetGame, addBlocks, setWreckingBallActive]);
 
   useEffect(() => {
@@ -240,7 +235,7 @@ export function GameScene() {
     <div className="w-full h-screen bg-black relative overflow-hidden">
       <Canvas
         shadows
-        camera={{ position: [12, 10, 18], fov: 55, near: 0.1, far: 200 }}
+        camera={{ position: [8, 8, 15], fov: 55, near: 0.1, far: 200 }}
         gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
         dpr={[1, 2]}
       >
@@ -248,17 +243,6 @@ export function GameScene() {
         <fog attach="fog" args={['#2a2a4e', 60, 120]} />
 
         <SceneLighting />
-        <Sky
-          distance={450000}
-          sunPosition={[10, 20, 10]}
-          inclination={0.5}
-          azimuth={0.25}
-          turbidity={8}
-          rayleigh={2}
-          mieCoefficient={0.005}
-          mieDirectionalG={0.8}
-        />
-        <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
 
         <SoftShadows size={15} samples={10} focus={0.5} />
 
@@ -316,7 +300,7 @@ export function GameScene() {
           maxPolarAngle={Math.PI / 2 - 0.05}
           minPolarAngle={0.1}
           makeDefault
-          target={[0, 5, 0]}
+          target={[0, 3, 0]}
         />
 
         <PhysicsStepper step={step} />

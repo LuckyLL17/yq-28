@@ -168,8 +168,8 @@ export function WeaponSystem({
   const createWreckingBall = useCallback(() => {
     if (wreckingBallRef.current) return;
 
-    const anchorPosition = new CANNON.Vec3(0, 25, -8);
-    const ballStartPosition = new CANNON.Vec3(-5, 20, -8);
+    const anchorPosition = new CANNON.Vec3(0, 30, -35);
+    const ballStartPosition = new CANNON.Vec3(0, 27, -35);
 
     const anchorBody = new CANNON.Body({
       mass: 0,
@@ -187,12 +187,16 @@ export function WeaponSystem({
       material: new CANNON.Material({ friction: 0.3, restitution: 0.4 }),
       linearDamping: 0.05,
       angularDamping: 0.05,
+      allowSleep: true,
+      sleepSpeedLimit: 0.01,
+      sleepTimeLimit: 0.01,
     });
     (ballBody as any).id = 'wreckingBall';
     (ballBody as any).userData = { isProjectile: true };
+    ballBody.sleep();
     addPhysicsBody(wreckingBallId, ballBody);
 
-    const constraint = new CANNON.DistanceConstraint(anchorBody, ballBody, 8);
+    const constraint = new CANNON.DistanceConstraint(anchorBody, ballBody, 3);
     if (useGameStore.getState().world) {
       useGameStore.getState().world!.addConstraint(constraint);
     }
@@ -509,7 +513,11 @@ export function WeaponSystem({
           ballBody.position.y,
           ballBody.position.z
         );
-        const anchorPos = new THREE.Vector3(0, 25, -8);
+        const anchorPos = new THREE.Vector3(
+          wreckingBallRef.current.anchorBody.position.x,
+          wreckingBallRef.current.anchorBody.position.y,
+          wreckingBallRef.current.anchorBody.position.z
+        );
 
         const aimEnd = ballPos.clone();
         aimEnd.x += dx * 0.03;
@@ -533,6 +541,7 @@ export function WeaponSystem({
         const impulseZ = -dy * 12;
         const impulseY = Math.max(0, -dy * 8) + 100;
 
+        wreckingBallRef.current.ballBody.wakeUp();
         wreckingBallRef.current.ballBody.applyImpulse(
           new CANNON.Vec3(impulseX, impulseY, impulseZ),
           wreckingBallRef.current.ballBody.position

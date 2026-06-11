@@ -38,9 +38,15 @@ export function Block({
   const [opacity, setOpacity] = useState(1);
   const [destroyed, setDestroyed] = useState(false);
   const blockData = useGameStore((s) => s.blocks.get(id));
-  const damageBlock = useGameStore((s) => s.damageBlock);
   const damageFlash = useRef(0);
   const cracksRef = useRef<THREE.Mesh[]>([]);
+
+  const onDestroyRef = useRef(onDestroy);
+  onDestroyRef.current = onDestroy;
+  const spawnDebrisRef = useRef(spawnDebris);
+  spawnDebrisRef.current = spawnDebris;
+  const damageBlockRef = useRef(useGameStore.getState().damageBlock);
+  damageBlockRef.current = useGameStore.getState().damageBlock;
 
   const properties = materialProperties[material];
   const isGlass = material === 'glass';
@@ -68,10 +74,10 @@ export function Block({
   }, [healthPercent, size]);
 
   useEffect(() => {
-    const properties = materialProperties[material];
+    const props = materialProperties[material];
     const halfSize: [number, number, number] = [size[0] / 2, size[1] / 2, size[2] / 2];
     const volume = size[0] * size[1] * size[2];
-    const mass = properties.density * volume * 0.000001;
+    const mass = props.density * volume * 0.000001;
 
     const shape = new CANNON.Box(new CANNON.Vec3(halfSize[0], halfSize[1], halfSize[2]));
     const body = new CANNON.Body({
@@ -107,13 +113,13 @@ export function Block({
       if (impactVelocity > 2) {
         const damage = impactVelocity * 8;
         damageFlash.current = 0.3;
-        if (damageBlock(id, damage)) {
+        if (damageBlockRef.current(id, damage)) {
           setDestroyed(true);
           if (meshRef.current) {
             const pos = meshRef.current.position;
-            onDestroy([pos.x, pos.y, pos.z], material);
-            if (spawnDebris) {
-              spawnDebris([pos.x, pos.y, pos.z], size, material);
+            onDestroyRef.current([pos.x, pos.y, pos.z], material);
+            if (spawnDebrisRef.current) {
+              spawnDebrisRef.current([pos.x, pos.y, pos.z], size, material);
             }
           }
         }
@@ -125,7 +131,8 @@ export function Block({
     return () => {
       removePhysicsBody(id);
     };
-  }, [id, position, size, material, addPhysicsBody, removePhysicsBody, damageBlock, onDestroy, spawnDebris]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, position[0], position[1], position[2], size[0], size[1], size[2], material, addPhysicsBody, removePhysicsBody]);
 
   useFrame((_, delta) => {
     const body = getPhysicsBody(id);
