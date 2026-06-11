@@ -240,15 +240,12 @@ export function GameScene() {
     <div className="w-full h-screen bg-black relative overflow-hidden">
       <Canvas
         shadows
-        camera={{ position: [0, 12, -25], fov: 50, near: 0.1, far: 200 }}
+        camera={{ position: [12, 10, 18], fov: 55, near: 0.1, far: 200 }}
         gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
         dpr={[1, 2]}
-        onCreated={({ camera, scene }) => {
-          camera.lookAt(0, 3, 0);
-        }}
       >
-        <color attach="background" args={['#1a1a2e']} />
-        <fog attach="fog" args={['#1a1a2e', 50, 100]} />
+        <color attach="background" args={['#2a2a4e']} />
+        <fog attach="fog" args={['#2a2a4e', 60, 120]} />
 
         <SceneLighting />
         <Sky
@@ -319,7 +316,7 @@ export function GameScene() {
           maxPolarAngle={Math.PI / 2 - 0.05}
           minPolarAngle={0.1}
           makeDefault
-          target={[0, 3, 0]}
+          target={[0, 5, 0]}
         />
 
         <PhysicsStepper step={step} />

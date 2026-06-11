@@ -188,6 +188,8 @@ export function WeaponSystem({
       linearDamping: 0.05,
       angularDamping: 0.05,
     });
+    (ballBody as any).id = 'wreckingBall';
+    (ballBody as any).userData = { isProjectile: true };
     addPhysicsBody(wreckingBallId, ballBody);
 
     const constraint = new CANNON.DistanceConstraint(anchorBody, ballBody, 8);
@@ -342,6 +344,7 @@ export function WeaponSystem({
       position: new CANNON.Vec3(startPos.x, startPos.y, startPos.z),
       material: new CANNON.Material({ friction: 0.2, restitution: 0.6 }),
     });
+    (body as any).userData = { isProjectile: true };
 
     const speed = 55;
     body.velocity.set(
@@ -412,6 +415,7 @@ export function WeaponSystem({
       position: new CANNON.Vec3(startPos.x, startPos.y, startPos.z),
       material: new CANNON.Material({ friction: 0.5, restitution: 0.2 }),
     });
+    (body as any).userData = { isProjectile: true };
 
     const speed = 35;
     body.velocity.set(

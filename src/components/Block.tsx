@@ -92,11 +92,20 @@ export function Block({
 
     body.addEventListener('collide', (event: any) => {
       const age = performance.now() - creationTime;
-      if (age < 500) return;
+      if (age < 1000) return;
+
+      const otherBody = event.body;
+      const otherUserData = (otherBody as any).userData;
+      const isWeaponImpact =
+        otherBody?.id === 'wreckingBall' ||
+        otherUserData?.isProjectile === true ||
+        otherUserData?.isDebris === true;
+
+      if (!isWeaponImpact) return;
 
       const impactVelocity = event.contact.getImpactVelocityAlongNormal();
-      if (impactVelocity > 4) {
-        const damage = impactVelocity * 5;
+      if (impactVelocity > 2) {
+        const damage = impactVelocity * 8;
         damageFlash.current = 0.3;
         if (damageBlock(id, damage)) {
           setDestroyed(true);

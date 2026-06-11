@@ -93,6 +93,7 @@ export function DebrisSystem({
         angularDamping: 0.1,
         allowSleep: true,
       });
+      (body as any).userData = { isDebris: true };
 
       const velocity: [number, number, number] = [
         (Math.random() - 0.5) * 12,
