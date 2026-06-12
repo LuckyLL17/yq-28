@@ -5,6 +5,25 @@ export type WeaponType = 'wreckingBall' | 'steelBall' | 'explosive' | 'sprayPain
 export type MaterialType = 'wood' | 'glass' | 'concrete';
 export type GameMode = 'destroy' | 'build';
 export type BuildTool = 'place' | 'move' | 'rotate' | 'delete' | 'sprayPaint';
+export type GravityDirection = 'down' | 'up' | 'left' | 'right' | 'forward' | 'backward';
+
+export const GRAVITY_VECTORS: Record<GravityDirection, [number, number, number]> = {
+  down: [0, -30, 0],
+  up: [0, 30, 0],
+  left: [-30, 0, 0],
+  right: [30, 0, 0],
+  forward: [0, 0, 30],
+  backward: [0, 0, -30],
+};
+
+export const GRAVITY_LABELS: Record<GravityDirection, string> = {
+  down: '↓ 向下',
+  up: '↑ 向上',
+  left: '← 向左',
+  right: '→ 向右',
+  forward: '⦿ 向前',
+  backward: '⊗ 向后',
+};
 
 export interface SprayPoint {
   x: number;
@@ -124,6 +143,8 @@ interface GameState {
   setAudioEnabled: (enabled: boolean) => void;
   audioEffectsConfig: AudioEffectsConfig;
   updateAudioEffectsConfig: (config: Partial<AudioEffectsConfig>) => void;
+  gravityDirection: GravityDirection;
+  setGravityDirection: (direction: GravityDirection) => void;
 }
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
@@ -251,6 +272,8 @@ export const useGameStore = create<GameState>((set, get) => ({
     set((state) => ({
       audioEffectsConfig: { ...state.audioEffectsConfig, ...config },
     })),
+  gravityDirection: 'down',
+  setGravityDirection: (direction) => set({ gravityDirection: direction }),
   addBlock: (block) => {
     const blocks = new Map(get().blocks);
     blocks.set(block.id, { ...block });

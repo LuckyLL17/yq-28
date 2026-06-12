@@ -1,17 +1,21 @@
 import { useRef, useMemo, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { useGameStore, generateId, MaterialType, materialProperties } from '@/store/gameStore';
+import { useGameStore, generateId, MaterialType, materialProperties, GRAVITY_VECTORS, GravityDirection } from '@/store/gameStore';
 
 interface ParticlesProps {
   maxParticles?: number;
 }
 
+function getGravityVector(direction: GravityDirection): THREE.Vector3 {
+  const v = GRAVITY_VECTORS[direction];
+  return new THREE.Vector3(v[0], v[1], v[2]);
+}
+
 export function Particles({ maxParticles = 500 }: ParticlesProps) {
-  const particles = useGameStore((s) => s.particles);
-  const updateParticle = useGameStore((s) => s.updateParticle);
   const removeParticle = useGameStore((s) => s.removeParticle);
   const addParticle = useGameStore((s) => s.addParticle);
+  const gravityDirection = useGameStore((s) => s.gravityDirection);
 
   const positions = useMemo(() => new Float32Array(maxParticles * 3), [maxParticles]);
   const colors = useMemo(() => new Float32Array(maxParticles * 3), [maxParticles]);
@@ -31,11 +35,14 @@ export function Particles({ maxParticles = 500 }: ParticlesProps) {
   }>>(new Map());
   const nextIndex = useRef(0);
   const activeCount = useRef(0);
+  const lastGravityRef = useRef<GravityDirection>(gravityDirection);
 
   useEffect(() => {
     window.__spawnParticles = (position: [number, number, number], material: MaterialType, count: number = 15) => {
       const properties = materialProperties[material];
       const baseColor = new THREE.Color(properties.color);
+      const gravVec = getGravityVector(useGameStore.getState().gravityDirection);
+      const gravNorm = gravVec.clone().normalize();
 
       for (let i = 0; i < count; i++) {
         if (activeCount.current >= maxParticles) break;
@@ -47,9 +54,10 @@ export function Particles({ maxParticles = 500 }: ParticlesProps) {
 
         const velocity = new THREE.Vector3(
           (Math.random() - 0.5) * 12,
-          Math.random() * 10 + 3,
+          (Math.random() - 0.5) * 12,
           (Math.random() - 0.5) * 12
         );
+        velocity.add(gravNorm.clone().multiplyScalar(-(Math.random() * 10 + 3)));
 
         const colorVariation = new THREE.Color().setHSL(
           baseColor.getHSL({ h: 0, s: 0, l: 0 }).h + (Math.random() - 0.5) * 0.05,
@@ -89,7 +97,9 @@ export function Particles({ maxParticles = 500 }: ParticlesProps) {
   }, [addParticle, maxParticles]);
 
   useFrame((_, delta) => {
-    const gravity = -25;
+    const gravityVec = getGravityVector(gravityDirection);
+    lastGravityRef.current = gravityDirection;
+
     const drag = 0.98;
     const idsToRemove: string[] = [];
 
@@ -100,7 +110,7 @@ export function Particles({ maxParticles = 500 }: ParticlesProps) {
         return;
       }
 
-      data.velocity.y += gravity * delta;
+      data.velocity.add(gravityVec.clone().multiplyScalar(delta));
       data.velocity.x *= Math.pow(drag, delta * 60);
       data.velocity.y *= Math.pow(drag, delta * 60);
       data.velocity.z *= Math.pow(drag, delta * 60);
@@ -109,11 +119,62 @@ export function Particles({ maxParticles = 500 }: ParticlesProps) {
       data.position.y += data.velocity.y * delta;
       data.position.z += data.velocity.z * delta;
 
-      if (data.position.y < 0.1) {
-        data.position.y = 0.1;
-        data.velocity.y *= -0.3;
-        data.velocity.x *= 0.7;
-        data.velocity.z *= 0.7;
+      const boundaryOffset = 50;
+      switch (gravityDirection) {
+        case 'down':
+          if (data.position.y < 0.1) {
+            data.position.y = 0.1;
+            data.velocity.reflect(new THREE.Vector3(0, 1, 0));
+            data.velocity.multiplyScalar(0.3);
+            data.velocity.x *= 0.7;
+            data.velocity.z *= 0.7;
+          }
+          break;
+        case 'up':
+          if (data.position.y > boundaryOffset - 0.1) {
+            data.position.y = boundaryOffset - 0.1;
+            data.velocity.reflect(new THREE.Vector3(0, -1, 0));
+            data.velocity.multiplyScalar(0.3);
+            data.velocity.x *= 0.7;
+            data.velocity.z *= 0.7;
+          }
+          break;
+        case 'left':
+          if (data.position.x < -boundaryOffset + 0.1) {
+            data.position.x = -boundaryOffset + 0.1;
+            data.velocity.reflect(new THREE.Vector3(1, 0, 0));
+            data.velocity.multiplyScalar(0.3);
+            data.velocity.y *= 0.7;
+            data.velocity.z *= 0.7;
+          }
+          break;
+        case 'right':
+          if (data.position.x > boundaryOffset - 0.1) {
+            data.position.x = boundaryOffset - 0.1;
+            data.velocity.reflect(new THREE.Vector3(-1, 0, 0));
+            data.velocity.multiplyScalar(0.3);
+            data.velocity.y *= 0.7;
+            data.velocity.z *= 0.7;
+          }
+          break;
+        case 'forward':
+          if (data.position.z > boundaryOffset - 0.1) {
+            data.position.z = boundaryOffset - 0.1;
+            data.velocity.reflect(new THREE.Vector3(0, 0, -1));
+            data.velocity.multiplyScalar(0.3);
+            data.velocity.x *= 0.7;
+            data.velocity.y *= 0.7;
+          }
+          break;
+        case 'backward':
+          if (data.position.z < -boundaryOffset + 0.1) {
+            data.position.z = -boundaryOffset + 0.1;
+            data.velocity.reflect(new THREE.Vector3(0, 0, 1));
+            data.velocity.multiplyScalar(0.3);
+            data.velocity.x *= 0.7;
+            data.velocity.y *= 0.7;
+          }
+          break;
       }
 
       const i = data.index * 3;

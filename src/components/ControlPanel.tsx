@@ -1,5 +1,5 @@
-import { useGameStore, WeaponType, MaterialType, BuildTool } from '@/store/gameStore';
-import { Hammer, Circle, Bomb, RotateCcw, Building2, Castle, Eye, Undo2, Redo2, Trash2, Move, RotateCw, Plus, Box, Wrench, Swords, SprayCan } from 'lucide-react';
+import { useGameStore, WeaponType, MaterialType, BuildTool, GravityDirection, GRAVITY_LABELS } from '@/store/gameStore';
+import { Hammer, Circle, Bomb, RotateCcw, Building2, Castle, Eye, Undo2, Redo2, Trash2, Move, RotateCw, Plus, Box, Wrench, Swords, SprayCan, ArrowDown, ArrowUp, ArrowLeft, ArrowRight, CircleDot, CircleX } from 'lucide-react';
 
 interface ControlPanelProps {
   onReset: () => void;
@@ -52,6 +52,15 @@ const toolConfigs: { type: BuildTool; name: string; icon: typeof Plus; color: st
   { type: 'sprayPaint', name: '涂鸦', icon: SprayCan, color: 'from-pink-500 to-rose-600' },
 ];
 
+const gravityConfigs: { type: GravityDirection; name: string; icon: typeof ArrowDown; color: string }[] = [
+  { type: 'down', name: '向下', icon: ArrowDown, color: 'from-gray-500 to-gray-700' },
+  { type: 'up', name: '向上', icon: ArrowUp, color: 'from-indigo-500 to-purple-600' },
+  { type: 'left', name: '向左', icon: ArrowLeft, color: 'from-cyan-500 to-blue-600' },
+  { type: 'right', name: '向右', icon: ArrowRight, color: 'from-emerald-500 to-teal-600' },
+  { type: 'forward', name: '向前', icon: CircleDot, color: 'from-orange-500 to-amber-600' },
+  { type: 'backward', name: '向后', icon: CircleX, color: 'from-pink-500 to-rose-600' },
+];
+
 const SPRAY_COLORS = [
   '#ff0066', '#ff3366', '#ff6633', '#ff9900', '#ffcc00',
   '#66ff33', '#00ff66', '#00ffcc', '#00ccff', '#3366ff',
@@ -79,6 +88,8 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild }: Co
   const setSprayColor = useGameStore((s) => s.setSprayColor);
   const spraySize = useGameStore((s) => s.spraySize);
   const setSpraySize = useGameStore((s) => s.setSpraySize);
+  const gravityDirection = useGameStore((s) => s.gravityDirection);
+  const setGravityDirection = useGameStore((s) => s.setGravityDirection);
 
   const totalBlocks = blocks.size;
 
@@ -535,6 +546,40 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild }: Co
                 <div className="text-white/50 text-xs">清除所有废墟</div>
               </div>
             </button>
+          </div>
+
+          <div className="mt-4 pt-4 border-t border-white/10">
+            <div className="text-white/70 text-xs mb-3 font-medium uppercase tracking-wider flex items-center gap-2">
+              <span>重力方向</span>
+              <span className="text-xs font-normal text-white/50">
+                {GRAVITY_LABELS[gravityDirection]}
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {gravityConfigs.map((config) => {
+                const Icon = config.icon;
+                const isActive = gravityDirection === config.type;
+                return (
+                  <button
+                    key={config.type}
+                    onClick={() => setGravityDirection(config.type)}
+                    className={`relative group p-2.5 rounded-xl transition-all duration-300 border ${
+                      isActive
+                        ? `bg-gradient-to-br ${config.color} border-white/30 shadow-lg scale-105`
+                        : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                    }`}
+                    title={config.name}
+                  >
+                    <div className="flex flex-col items-center gap-1">
+                      <Icon className={`w-5 h-5 ${isActive ? 'text-white' : 'text-white/70'}`} />
+                      <span className={`text-[10px] font-medium ${isActive ? 'text-white' : 'text-white/70'}`}>
+                        {config.name}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>

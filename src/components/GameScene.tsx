@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { OrbitControls, Sky, Stars, Environment, SoftShadows } from '@react-three/drei';
+import { OrbitControls, SoftShadows } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette, ChromaticAberration } from '@react-three/postprocessing';
 import * as THREE from 'three';
-import * as CANNON from 'cannon-es';
-import { useGameStore, MaterialType, generateId, materialProperties } from '@/store/gameStore';
+import { useGameStore, MaterialType, generateId, materialProperties, GravityDirection } from '@/store/gameStore';
 import { usePhysics } from '@/hooks/usePhysics';
 import { Block } from './Block';
 import { generateBuilding, generateCastle } from './BuildingGenerator';
@@ -40,10 +39,30 @@ function DebugExporter() {
   return null;
 }
 
-function Ground() {
+function Ground({ gravityDirection }: { gravityDirection: GravityDirection }) {
+  const getGroundTransform = () => {
+    switch (gravityDirection) {
+      case 'down':
+      default:
+        return { rotation: [-Math.PI / 2, 0, 0] as [number, number, number], position: [0, 0, 0] as [number, number, number], circlePos: [0, 0.01, 0] as [number, number, number], ringPos: [0, 0.02, 0] as [number, number, number] };
+      case 'up':
+        return { rotation: [Math.PI / 2, 0, 0] as [number, number, number], position: [0, 50, 0] as [number, number, number], circlePos: [0, 50 - 0.01, 0] as [number, number, number], ringPos: [0, 50 - 0.02, 0] as [number, number, number] };
+      case 'left':
+        return { rotation: [0, Math.PI / 2, 0] as [number, number, number], position: [-50, 0, 0] as [number, number, number], circlePos: [-50 + 0.01, 0, 0] as [number, number, number], ringPos: [-50 + 0.02, 0, 0] as [number, number, number] };
+      case 'right':
+        return { rotation: [0, -Math.PI / 2, 0] as [number, number, number], position: [50, 0, 0] as [number, number, number], circlePos: [50 - 0.01, 0, 0] as [number, number, number], ringPos: [50 - 0.02, 0, 0] as [number, number, number] };
+      case 'forward':
+        return { rotation: [0, 0, 0] as [number, number, number], position: [0, 0, 50] as [number, number, number], circlePos: [0, 0, 50 - 0.01] as [number, number, number], ringPos: [0, 0, 50 - 0.02] as [number, number, number] };
+      case 'backward':
+        return { rotation: [Math.PI, 0, 0] as [number, number, number], position: [0, 0, -50] as [number, number, number], circlePos: [0, 0, -50 + 0.01] as [number, number, number], ringPos: [0, 0, -50 + 0.02] as [number, number, number] };
+    }
+  };
+
+  const { rotation, position, circlePos, ringPos } = getGroundTransform();
+
   return (
     <>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
+      <mesh rotation={rotation} position={position} receiveShadow>
         <planeGeometry args={[200, 200]} />
         <meshStandardMaterial
           color="#2a2a35"
@@ -51,7 +70,7 @@ function Ground() {
           metalness={0.1}
         />
       </mesh>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.01, 0]} receiveShadow>
+      <mesh rotation={rotation} position={circlePos} receiveShadow>
         <circleGeometry args={[30, 64]} />
         <meshStandardMaterial
           color="#3a3a4a"
@@ -59,7 +78,7 @@ function Ground() {
           metalness={0.1}
         />
       </mesh>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
+      <mesh rotation={rotation} position={ringPos}>
         <ringGeometry args={[28, 30, 64]} />
         <meshStandardMaterial
           color="#4a4a5a"
@@ -130,7 +149,7 @@ function BuildSceneLighting() {
 
 export function GameScene() {
   const gameMode = useGameStore((s) => s.gameMode);
-  const setGameMode = useGameStore((s) => s.setGameMode);
+  const gravityDirection = useGameStore((s) => s.gravityDirection);
 
   const {
     blocks,
@@ -215,7 +234,7 @@ export function GameScene() {
         const upAngle = Math.random() * Math.PI;
         const speed = 10 + Math.random() * 25;
         const vx = Math.cos(angle) * Math.sin(upAngle) * speed;
-        const vy = Math.cos(upAngle) * speed + 10;
+        const vy = Math.cos(upAngle) * speed;
         const vz = Math.sin(angle) * Math.sin(upAngle) * speed;
 
         addParticle({
@@ -247,9 +266,10 @@ export function GameScene() {
     setWreckingBallActive(false);
     setRebuildCounter((c) => c + 1);
 
+    const currentGravity = useGameStore.getState().gravityDirection;
     const buildingBlocks = type === 'building'
-      ? generateBuilding({ width: 7, height: 5, depth: 5, blockSize: [1.2, 0.6, 1.2] })
-      : generateCastle({ width: 9, height: 4, depth: 7, blockSize: [1, 0.5, 1] });
+      ? generateBuilding({ width: 7, height: 5, depth: 5, blockSize: [1.2, 0.6, 1.2], gravityDirection: currentGravity })
+      : generateCastle({ width: 9, height: 4, depth: 7, blockSize: [1, 0.5, 1], gravityDirection: currentGravity });
 
     resetGame();
     addBlocks(buildingBlocks);
@@ -263,7 +283,8 @@ export function GameScene() {
     setWreckingBallActive(false);
     setRebuildCounter((c) => c + 1);
 
-    const buildingBlocks = generateBuilding({ width: 7, height: 5, depth: 5, blockSize: [1.2, 0.6, 1.2] });
+    const currentGravity = useGameStore.getState().gravityDirection;
+    const buildingBlocks = generateBuilding({ width: 7, height: 5, depth: 5, blockSize: [1.2, 0.6, 1.2], gravityDirection: currentGravity });
 
     resetGame();
     addBlocks(buildingBlocks);
@@ -278,11 +299,26 @@ export function GameScene() {
   useEffect(() => {
     if (gameMode === 'destroy' && !initRef.current) {
       initRef.current = true;
-      const buildingBlocks = generateBuilding({ width: 7, height: 5, depth: 5, blockSize: [1.2, 0.6, 1.2] });
+      const currentGravity = useGameStore.getState().gravityDirection;
+      const buildingBlocks = generateBuilding({ width: 7, height: 5, depth: 5, blockSize: [1.2, 0.6, 1.2], gravityDirection: currentGravity });
       addBlocks(buildingBlocks);
       setBuildingGenerated(true);
     }
   }, [addBlocks, gameMode]);
+
+  useEffect(() => {
+    if (gameMode === 'destroy' && buildingGenerated) {
+      initRef.current = false;
+      setWreckingBallActive(false);
+      setRebuildCounter((c) => c + 1);
+
+      const buildingBlocks = generateBuilding({ width: 7, height: 5, depth: 5, blockSize: [1.2, 0.6, 1.2], gravityDirection });
+
+      resetGame();
+      addBlocks(buildingBlocks);
+      initRef.current = true;
+    }
+  }, [gravityDirection, gameMode, buildingGenerated, resetGame, addBlocks, setWreckingBallActive]);
 
   const blockArray = Array.from(blocks.values());
 
@@ -303,7 +339,7 @@ export function GameScene() {
 
         <DebugExporter />
 
-        {gameMode === 'destroy' && <Ground />}
+        {gameMode === 'destroy' && <Ground gravityDirection={gravityDirection} />}
 
         {gameMode === 'destroy' && buildingGenerated && blockArray.map((block) => (
           <Block
@@ -368,7 +404,18 @@ export function GameScene() {
           maxPolarAngle={Math.PI / 2 - 0.05}
           minPolarAngle={0.1}
           makeDefault
-          target={gameMode === 'build' ? [0, 1, 0] : [0, 3, 0]}
+          target={(() => {
+            if (gameMode === 'build') return [0, 1, 0];
+            switch (gravityDirection) {
+              case 'down': return [0, 3, 0];
+              case 'up': return [0, 47, 0];
+              case 'left': return [-47, 3, 0];
+              case 'right': return [47, 3, 0];
+              case 'forward': return [0, 3, 47];
+              case 'backward': return [0, 3, -47];
+              default: return [0, 3, 0];
+            }
+          })()}
         />
 
         {gameMode === 'destroy' && <PhysicsStepper step={step} />}

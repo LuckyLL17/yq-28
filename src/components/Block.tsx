@@ -2,7 +2,7 @@ import { useRef, useEffect, useState, useMemo, useCallback } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { useGameStore, MaterialType, materialProperties, generateId, BlockData } from '@/store/gameStore';
+import { useGameStore, MaterialType, materialProperties, generateId, BlockData, GRAVITY_VECTORS, GravityDirection } from '@/store/gameStore';
 
 interface BlockProps {
   id: string;
@@ -56,6 +56,7 @@ export function Block({
   const audioAnalysis = useGameStore((s) => s.audioAnalysis);
   const audioEnabled = useGameStore((s) => s.audioEnabled);
   const audioEffectsConfig = useGameStore((s) => s.audioEffectsConfig);
+  const gravityDirection = useGameStore((s) => s.gravityDirection);
 
   const audioShakeRef = useRef({ x: 0, y: 0, z: 0 });
   const audioGlowRef = useRef(0);
@@ -192,8 +193,21 @@ export function Block({
 
     let creationTime = performance.now();
 
-    const yOffset = Math.max(0, position[1]);
-    const wakeDelay = 500 + yOffset * 350 + Math.random() * 300;
+    const getGravityDistance = (pos: [number, number, number], grav: GravityDirection): number => {
+      const boundary = 50;
+      switch (grav) {
+        case 'down': return Math.max(0, pos[1]);
+        case 'up': return Math.max(0, boundary - pos[1]);
+        case 'left': return Math.max(0, pos[0] + boundary);
+        case 'right': return Math.max(0, boundary - pos[0]);
+        case 'forward': return Math.max(0, boundary - pos[2]);
+        case 'backward': return Math.max(0, pos[2] + boundary);
+        default: return Math.max(0, pos[1]);
+      }
+    };
+
+    const gravDistance = getGravityDistance(position, gravityDirection);
+    const wakeDelay = 500 + gravDistance * 350 + Math.random() * 300;
     const wakeTimer = setTimeout(() => {
       body.wakeUp();
     }, wakeDelay);
@@ -393,11 +407,15 @@ export function Block({
             }
             body.wakeUp();
             const forceStrength = (50 + bass * 200) * (1 + blockPosHash);
+            const gravVec = GRAVITY_VECTORS[gravityDirection];
+            const antiGravX = -gravVec[0] * 0.5 + (Math.random() - 0.5) * forceStrength;
+            const antiGravY = -gravVec[1] * 0.5 + (Math.random() - 0.5) * forceStrength;
+            const antiGravZ = -gravVec[2] * 0.5 + (Math.random() - 0.5) * forceStrength;
             body.applyForce(
               new CANNON.Vec3(
-                (Math.random() - 0.5) * forceStrength,
-                forceStrength * 0.6,
-                (Math.random() - 0.5) * forceStrength
+                antiGravX,
+                antiGravY,
+                antiGravZ
               ),
               new CANNON.Vec3(
                 position[0] + (Math.random() - 0.5) * size[0],

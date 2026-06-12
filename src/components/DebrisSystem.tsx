@@ -2,7 +2,8 @@ import { useRef, useEffect, useRef as useReactRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { MaterialType, materialProperties } from '@/store/gameStore';
+import { MaterialType, materialProperties, GRAVITY_VECTORS } from '@/store/gameStore';
+import { useGameStore } from '@/store/gameStore';
 
 interface DebrisData {
   id: string;
@@ -28,6 +29,7 @@ export function DebrisSystem({
   const debrisMap = useReactRef<Map<string, DebrisData>>(new Map());
   const nextId = useReactRef(0);
   const sceneRef = useRef<THREE.Group | null>(null);
+  const gravityDirection = useGameStore((s) => s.gravityDirection);
 
   const spawnDebris = (
     position: [number, number, number],
@@ -46,6 +48,9 @@ export function DebrisSystem({
     if (sprayColors && sprayColors.length > 0) {
       colorPalette = [...colorPalette, ...sprayColors];
     }
+
+    const gravVec = GRAVITY_VECTORS[useGameStore.getState().gravityDirection];
+    const gravNorm = new THREE.Vector3(gravVec[0], gravVec[1], gravVec[2]).normalize();
 
     for (let i = 0; i < debrisCount; i++) {
       const id = `debris_${nextId.current++}`;
@@ -99,12 +104,14 @@ export function DebrisSystem({
       });
       (body as any).userData = { isDebris: true };
 
-      const velocity: [number, number, number] = [
+      const velocity = new THREE.Vector3(
         (Math.random() - 0.5) * 12,
-        Math.random() * 10 + 4,
         (Math.random() - 0.5) * 12,
-      ];
-      body.velocity.set(velocity[0], velocity[1], velocity[2]);
+        (Math.random() - 0.5) * 12
+      );
+      velocity.add(gravNorm.clone().multiplyScalar(-(Math.random() * 8 + 4)));
+
+      body.velocity.set(velocity.x, velocity.y, velocity.z);
       body.angularVelocity.set(
         (Math.random() - 0.5) * 8,
         (Math.random() - 0.5) * 8,
@@ -184,8 +191,33 @@ export function DebrisSystem({
         }
       }
 
-      if (debris.life <= 0 || body.position.y < -5) {
+      if (debris.life <= 0) {
         toRemove.push(id);
+      } else {
+        const boundary = 80;
+        switch (gravityDirection) {
+          case 'down':
+            if (body.position.y < -10) toRemove.push(id);
+            break;
+          case 'up':
+            if (body.position.y > boundary) toRemove.push(id);
+            break;
+          case 'left':
+            if (body.position.x < -boundary) toRemove.push(id);
+            break;
+          case 'right':
+            if (body.position.x > boundary) toRemove.push(id);
+            break;
+          case 'forward':
+            if (body.position.z > boundary) toRemove.push(id);
+            break;
+          case 'backward':
+            if (body.position.z < -boundary) toRemove.push(id);
+            break;
+        }
+        if (Math.abs(body.position.x) > boundary + 20 || Math.abs(body.position.z) > boundary + 20 || Math.abs(body.position.y) > boundary + 20) {
+          toRemove.push(id);
+        }
       }
     });
 

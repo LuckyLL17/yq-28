@@ -1,8 +1,8 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useCallback } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { useGameStore, WeaponType } from '@/store/gameStore';
+import { useGameStore, WeaponType, GRAVITY_VECTORS } from '@/store/gameStore';
 
 interface WeaponSystemProps {
   addPhysicsBody: (id: string, body: CANNON.Body) => void;
@@ -175,8 +175,27 @@ export function WeaponSystem({
   const createWreckingBall = useCallback(() => {
     if (wreckingBallRef.current) return;
 
-    const anchorPosition = new CANNON.Vec3(0, 30, -35);
-    const ballStartPosition = new CANNON.Vec3(0, 27, -35);
+    const gravityDir = useGameStore.getState().gravityDirection;
+    const gravVec = GRAVITY_VECTORS[gravityDir];
+    const antiGravRaw = new CANNON.Vec3(-gravVec[0], -gravVec[1], -gravVec[2]);
+    const antiGravLen = Math.sqrt(antiGravRaw.x * antiGravRaw.x + antiGravRaw.y * antiGravRaw.y + antiGravRaw.z * antiGravRaw.z);
+    const antiGrav = new CANNON.Vec3(
+      antiGravRaw.x / antiGravLen,
+      antiGravRaw.y / antiGravLen,
+      antiGravRaw.z / antiGravLen
+    );
+
+    const anchorOffset = 30;
+    const anchorPosition = new CANNON.Vec3(
+      antiGrav.x * anchorOffset,
+      antiGrav.y * anchorOffset - 5,
+      antiGrav.z * anchorOffset - 5
+    );
+    const ballStartPosition = new CANNON.Vec3(
+      antiGrav.x * (anchorOffset - 3),
+      antiGrav.y * (anchorOffset - 3) - 5,
+      antiGrav.z * (anchorOffset - 3) - 5
+    );
 
     const anchorBody = new CANNON.Body({
       mass: 0,
@@ -528,11 +547,6 @@ export function WeaponSystem({
           ballBody.position.y,
           ballBody.position.z
         );
-        const anchorPos = new THREE.Vector3(
-          wreckingBallRef.current.anchorBody.position.x,
-          wreckingBallRef.current.anchorBody.position.y,
-          wreckingBallRef.current.anchorBody.position.z
-        );
 
         const aimEnd = ballPos.clone();
         aimEnd.x += dx * 0.03;
@@ -552,9 +566,13 @@ export function WeaponSystem({
         const dx = (e.clientX - wreckingBallRef.current.dragStartPos.x);
         const dy = (e.clientY - wreckingBallRef.current.dragStartPos.y);
 
-        const impulseX = dx * 15;
-        const impulseZ = -dy * 12;
-        const impulseY = Math.max(0, -dy * 8) + 100;
+        const gravityDir = useGameStore.getState().gravityDirection;
+        const gravVec = GRAVITY_VECTORS[gravityDir];
+        const antiGrav = new THREE.Vector3(-gravVec[0], -gravVec[1], -gravVec[2]).normalize();
+
+        const impulseX = dx * 15 + antiGrav.x * 50;
+        const impulseZ = -dy * 12 + antiGrav.z * 50;
+        const impulseY = antiGrav.y * 100 + Math.max(0, -dy * 8);
 
         wreckingBallRef.current.ballBody.wakeUp();
         wreckingBallRef.current.ballBody.applyImpulse(
