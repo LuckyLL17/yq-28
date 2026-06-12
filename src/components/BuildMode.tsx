@@ -244,6 +244,11 @@ function checkCollision(position: [number, number, number], size: [number, numbe
 
 function BuildBlock({ block, isSelected }: { block: BlockData; isSelected: boolean }) {
   const meshRef = useRef<THREE.Mesh>(null);
+  const materialRef = useRef<THREE.MeshStandardMaterial | null>(null);
+  const textureRef = useRef<THREE.CanvasTexture | null>(null);
+  const baseCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [canvasTexture, setCanvasTexture] = useState<THREE.CanvasTexture | null>(null);
+  const lastSprayVersion = useRef(0);
   const outlineRef = useRef<THREE.LineSegments>(null);
   const buildTool = useGameStore((s) => s.buildTool);
   const buildMaterial = useGameStore((s) => s.buildMaterial);
@@ -264,6 +269,66 @@ function BuildBlock({ block, isSelected }: { block: BlockData; isSelected: boole
   const { camera, raycaster, pointer } = useThree();
   const intersectionPoint = useRef(new THREE.Vector3());
   const updateBlockPosition = useGameStore((s) => s.updateBlockPosition);
+  const getBlockSprayCanvas = useGameStore((s) => s.getBlockSprayCanvas);
+  const blockData = useGameStore((s) => s.blocks.get(block.id));
+
+  const updateBlockTexture = useCallback(() => {
+    if (!baseCanvasRef.current || !textureRef.current) return;
+    const baseCtx = baseCanvasRef.current.getContext('2d');
+    if (!baseCtx) return;
+
+    const props = materialProperties[block.material];
+    const w = baseCanvasRef.current.width;
+    const h = baseCanvasRef.current.height;
+    baseCtx.clearRect(0, 0, w, h);
+    baseCtx.fillStyle = props.color;
+    baseCtx.fillRect(0, 0, w, h);
+
+    const sprayCanvas = getBlockSprayCanvas(block.id);
+    if (sprayCanvas) {
+      baseCtx.drawImage(sprayCanvas, 0, 0, w, h);
+    }
+    textureRef.current.needsUpdate = true;
+    if (materialRef.current) {
+      materialRef.current.needsUpdate = true;
+    }
+  }, [block.id, block.material, getBlockSprayCanvas]);
+
+  useEffect(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 256;
+    baseCanvasRef.current = canvas;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const props = materialProperties[block.material];
+      ctx.fillStyle = props.color;
+      ctx.fillRect(0, 0, 256, 256);
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.needsUpdate = true;
+    textureRef.current = texture;
+    setCanvasTexture(texture);
+
+    updateBlockTexture();
+
+    return () => {
+      texture.dispose();
+      textureRef.current = null;
+      setCanvasTexture(null);
+    };
+  }, [block.material, updateBlockTexture]);
+
+  useFrame(() => {
+    const currentSprayVersion = blockData?.sprayTextureVersion || 0;
+    if (currentSprayVersion !== lastSprayVersion.current) {
+      lastSprayVersion.current = currentSprayVersion;
+      updateBlockTexture();
+    }
+  });
 
   const placeOnTop = useCallback(() => {
     const [bx, by, bz] = block.position;
@@ -441,11 +506,13 @@ function BuildBlock({ block, isSelected }: { block: BlockData; isSelected: boole
         onClick={handleClick}
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
-        userData={{ isBuildBlock: true, blockId: block.id }}
+        userData={{ isBuildBlock: true, blockId: block.id, blockMaterial: block.material, blockSize: block.size }}
       >
         <boxGeometry args={block.size} />
         <meshStandardMaterial
-          color={properties.color}
+          ref={materialRef}
+          color="#ffffff"
+          map={canvasTexture}
           transparent={isGlass}
           opacity={isGlass ? 0.6 : 1}
           roughness={block.material === 'wood' ? 0.8 : block.material === 'concrete' ? 0.9 : 0.1}
