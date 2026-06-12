@@ -89,19 +89,21 @@ export const materialProperties: Record<MaterialType, { color: string; health: n
   concrete: { color: '#808080', health: 150, density: 2400, emissive: '#333333' },
 };
 
+export const MAX_UNDO_STEPS = 50;
+
 export const useGameStore = create<GameState>((set, get) => ({
   weapon: 'wreckingBall',
   setWeapon: (weapon) => set({ weapon }),
   blocks: new Map(),
   addBlock: (block) => {
     const blocks = new Map(get().blocks);
-    blocks.set(block.id, block);
+    blocks.set(block.id, { ...block });
     set({ blocks });
   },
   addBlocks: (newBlocks) => {
     const blocks = new Map(get().blocks);
     newBlocks.forEach((block) => {
-      blocks.set(block.id, block);
+      blocks.set(block.id, { ...block });
     });
     set({ blocks });
   },
@@ -114,12 +116,13 @@ export const useGameStore = create<GameState>((set, get) => ({
     const blocks = new Map(get().blocks);
     const block = blocks.get(id);
     if (block) {
-      block.health -= damage;
-      if (block.health <= 0) {
+      const newHealth = block.health - damage;
+      if (newHealth <= 0) {
         blocks.delete(id);
         set({ blocks });
         return true;
       }
+      blocks.set(id, { ...block, health: newHealth });
       set({ blocks });
     }
     return false;
@@ -128,7 +131,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     const blocks = new Map(get().blocks);
     const block = blocks.get(id);
     if (block) {
-      block.position = position;
+      blocks.set(id, { ...block, position: [...position] as [number, number, number] });
       set({ blocks });
     }
   },
@@ -136,14 +139,14 @@ export const useGameStore = create<GameState>((set, get) => ({
     const blocks = new Map(get().blocks);
     const block = blocks.get(id);
     if (block) {
-      block.rotation = rotation;
+      blocks.set(id, { ...block, rotation: [...rotation] as [number, number, number] });
       set({ blocks });
     }
   },
   particles: new Map(),
   addParticle: (particle) => {
     const particles = new Map(get().particles);
-    particles.set(particle.id, particle);
+    particles.set(particle.id, { ...particle });
     set({ particles });
   },
   removeParticle: (id) => {
@@ -155,14 +158,14 @@ export const useGameStore = create<GameState>((set, get) => ({
     const particles = new Map(get().particles);
     const particle = particles.get(id);
     if (particle) {
-      Object.assign(particle, data);
+      particles.set(id, { ...particle, ...data });
       set({ particles });
     }
   },
   explosions: new Map(),
   addExplosion: (explosion) => {
     const explosions = new Map(get().explosions);
-    explosions.set(explosion.id, explosion);
+    explosions.set(explosion.id, { ...explosion });
     set({ explosions });
   },
   removeExplosion: (id) => {
@@ -174,7 +177,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     const explosions = new Map(get().explosions);
     const explosion = explosions.get(id);
     if (explosion) {
-      Object.assign(explosion, data);
+      explosions.set(id, { ...explosion, ...data });
       set({ explosions });
     }
   },
@@ -201,8 +204,12 @@ export const useGameStore = create<GameState>((set, get) => ({
   undoStack: [],
   redoStack: [],
   pushUndoAction: (action) => {
-    const undoStack = [...get().undoStack, action];
-    set({ undoStack, redoStack: [] });
+    const currentUndo = get().undoStack;
+    let newUndoStack = [...currentUndo, action];
+    if (newUndoStack.length > MAX_UNDO_STEPS) {
+      newUndoStack = newUndoStack.slice(newUndoStack.length - MAX_UNDO_STEPS);
+    }
+    set({ undoStack: newUndoStack, redoStack: [] });
   },
   undo: () => {
     const { undoStack, redoStack } = get();
@@ -219,20 +226,26 @@ export const useGameStore = create<GameState>((set, get) => ({
         break;
       }
       case 'remove': {
-        blocks.set(action.block.id, action.block);
+        blocks.set(action.block.id, { ...action.block });
         break;
       }
       case 'move': {
         const block = blocks.get(action.blockId);
         if (block) {
-          block.position = action.fromPosition;
+          blocks.set(action.blockId, {
+            ...block,
+            position: [...action.fromPosition] as [number, number, number],
+          });
         }
         break;
       }
       case 'rotate': {
         const block = blocks.get(action.blockId);
         if (block) {
-          block.rotation = action.fromRotation;
+          blocks.set(action.blockId, {
+            ...block,
+            rotation: [...action.fromRotation] as [number, number, number],
+          });
         }
         break;
       }
@@ -245,13 +258,16 @@ export const useGameStore = create<GameState>((set, get) => ({
     if (redoStack.length === 0) return;
     const action = redoStack[redoStack.length - 1];
     const newRedoStack = redoStack.slice(0, -1);
-    const newUndoStack = [...undoStack, action];
+    let newUndoStack = [...undoStack, action];
+    if (newUndoStack.length > MAX_UNDO_STEPS) {
+      newUndoStack = newUndoStack.slice(newUndoStack.length - MAX_UNDO_STEPS);
+    }
 
     const blocks = new Map(get().blocks);
 
     switch (action.type) {
       case 'add': {
-        blocks.set(action.block.id, action.block);
+        blocks.set(action.block.id, { ...action.block });
         break;
       }
       case 'remove': {
@@ -261,14 +277,20 @@ export const useGameStore = create<GameState>((set, get) => ({
       case 'move': {
         const block = blocks.get(action.blockId);
         if (block) {
-          block.position = action.toPosition;
+          blocks.set(action.blockId, {
+            ...block,
+            position: [...action.toPosition] as [number, number, number],
+          });
         }
         break;
       }
       case 'rotate': {
         const block = blocks.get(action.blockId);
         if (block) {
-          block.rotation = action.toRotation;
+          blocks.set(action.blockId, {
+            ...block,
+            rotation: [...action.toRotation] as [number, number, number],
+          });
         }
         break;
       }
