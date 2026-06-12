@@ -1,11 +1,12 @@
-import { useGameStore, WeaponType, MaterialType, BuildTool, GravityDirection, GRAVITY_LABELS } from '@/store/gameStore';
-import { Hammer, Circle, Bomb, RotateCcw, Building2, Castle, Eye, Undo2, Redo2, Trash2, Move, RotateCw, Plus, Box, Wrench, Swords, SprayCan, ArrowDown, ArrowUp, ArrowLeft, ArrowRight, CircleDot, CircleX, Bot, Grip, RefreshCw } from 'lucide-react';
+import { useGameStore, WeaponType, MaterialType, BuildTool, GravityDirection, GRAVITY_LABELS, ConstraintType, LabObjectType, LabTool } from '@/store/gameStore';
+import { Hammer, Circle, Bomb, RotateCcw, Building2, Castle, Eye, Undo2, Redo2, Trash2, Move, RotateCw, Plus, Box, Wrench, Swords, SprayCan, ArrowDown, ArrowUp, ArrowLeft, ArrowRight, CircleDot, CircleX, Bot, Grip, RefreshCw, FlaskConical, Link, Anchor, Minus, Scaling, Unlink } from 'lucide-react';
 
 interface ControlPanelProps {
   onReset: () => void;
   onRegenerateBuilding: (type: 'building' | 'castle') => void;
   onClearBuild: () => void;
   onResetRoboticArm: () => void;
+  onResetPhysicsLab: () => void;
 }
 
 const weaponConfigs: { type: WeaponType; name: string; description: string; icon: typeof Hammer; color: string }[] = [
@@ -68,7 +69,30 @@ const SPRAY_COLORS = [
   '#6633ff', '#cc33ff', '#ff33cc', '#ffffff', '#000000',
 ];
 
-export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild, onResetRoboticArm }: ControlPanelProps) {
+const labObjectConfigs: { type: LabObjectType; name: string; icon: typeof Box; color: string; bgClass: string }[] = [
+  { type: 'box', name: '立方体', icon: Box, color: '#4a90d9', bgClass: 'from-blue-500 to-blue-700' },
+  { type: 'sphere', name: '球体', icon: Circle, color: '#e74c3c', bgClass: 'from-red-500 to-red-700' },
+  { type: 'cylinder', name: '圆柱体', icon: Minus, color: '#2ecc71', bgClass: 'from-green-500 to-green-700' },
+  { type: 'groundAnchor', name: '锚点', icon: Anchor, color: '#95a5a6', bgClass: 'from-gray-500 to-gray-700' },
+  { type: 'weight', name: '重物', icon: Box, color: '#34495e', bgClass: 'from-slate-600 to-slate-800' },
+];
+
+const constraintTypeConfigs: { type: ConstraintType; name: string; icon: typeof Link; color: string; bgClass: string }[] = [
+  { type: 'spring', name: '弹簧', icon: Scaling, color: '#ff6b6b', bgClass: 'from-rose-500 to-pink-600' },
+  { type: 'rope', name: '绳索', icon: Link, color: '#feca57', bgClass: 'from-amber-500 to-yellow-600' },
+  { type: 'hinge', name: '铰链', icon: RotateCw, color: '#48dbfb', bgClass: 'from-cyan-500 to-blue-600' },
+  { type: 'pulley', name: '滑轮', icon: Circle, color: '#ff9ff3', bgClass: 'from-pink-400 to-fuchsia-600' },
+  { type: 'distance', name: '距离', icon: Minus, color: '#54a0ff', bgClass: 'from-blue-400 to-indigo-600' },
+];
+
+const labToolConfigs: { type: LabTool; name: string; icon: typeof Plus; color: string }[] = [
+  { type: 'placeObject', name: '放置物体', icon: Plus, color: 'from-emerald-500 to-green-600' },
+  { type: 'placeConstraint', name: '添加约束', icon: Link, color: 'from-blue-500 to-indigo-600' },
+  { type: 'select', name: '选择', icon: Eye, color: 'from-purple-500 to-violet-600' },
+  { type: 'delete', name: '删除', icon: Trash2, color: 'from-red-500 to-rose-600' },
+];
+
+export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild, onResetRoboticArm, onResetPhysicsLab }: ControlPanelProps) {
   const weapon = useGameStore((s) => s.weapon);
   const setWeapon = useGameStore((s) => s.setWeapon);
   const blocks = useGameStore((s) => s.blocks);
@@ -98,6 +122,23 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild, onRe
   const setRoboticArmWristAngle = useGameStore((s) => s.setRoboticArmWristAngle);
   const setRoboticArmGripperOpen = useGameStore((s) => s.setRoboticArmGripperOpen);
   const resetRoboticArm = useGameStore((s) => s.resetRoboticArm);
+
+  const labObjects = useGameStore((s) => s.labObjects);
+  const labConstraints = useGameStore((s) => s.labConstraints);
+  const labTool = useGameStore((s) => s.labTool);
+  const selectedLabObjectType = useGameStore((s) => s.selectedLabObjectType);
+  const selectedConstraintType = useGameStore((s) => s.selectedConstraintType);
+  const constraintStartObjectId = useGameStore((s) => s.constraintStartObjectId);
+  const springStiffness = useGameStore((s) => s.springStiffness);
+  const springDamping = useGameStore((s) => s.springDamping);
+  const ropeLength = useGameStore((s) => s.ropeLength);
+  const setLabTool = useGameStore((s) => s.setLabTool);
+  const setSelectedLabObjectType = useGameStore((s) => s.setSelectedLabObjectType);
+  const setSelectedConstraintType = useGameStore((s) => s.setSelectedConstraintType);
+  const setSpringStiffness = useGameStore((s) => s.setSpringStiffness);
+  const setSpringDamping = useGameStore((s) => s.setSpringDamping);
+  const setRopeLength = useGameStore((s) => s.setRopeLength);
+  const resetPhysicsLab = useGameStore((s) => s.resetPhysicsLab);
 
   const totalBlocks = blocks.size;
 
@@ -236,6 +277,18 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild, onRe
           <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl">
             <div className="text-white/70 text-xs mb-3 font-medium uppercase tracking-wider">模式切换</div>
             <div className="flex flex-col gap-2">
+              <button
+                onClick={() => setGameMode('physicsLab')}
+                className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-cyan-500/20 to-blue-500/20 border border-cyan-500/30 hover:from-cyan-500/30 hover:to-blue-500/30 transition-all duration-200 group"
+              >
+                <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <FlaskConical className="w-5 h-5 text-white" />
+                </div>
+                <div className="text-left">
+                  <div className="text-white text-sm font-medium">切换到物理实验室</div>
+                  <div className="text-white/50 text-xs">弹簧绳索铰链滑轮</div>
+                </div>
+              </button>
               <button
                 onClick={() => setGameMode('destroy')}
                 className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-red-500/20 to-orange-500/20 border border-red-500/30 hover:from-red-500/30 hover:to-orange-500/30 transition-all duration-200 group"
@@ -519,6 +572,18 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild, onRe
                 </div>
               </button>
               <button
+                onClick={() => setGameMode('physicsLab')}
+                className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-cyan-500/20 to-blue-500/20 border border-cyan-500/30 hover:from-cyan-500/30 hover:to-blue-500/30 transition-all duration-200 group"
+              >
+                <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <FlaskConical className="w-5 h-5 text-white" />
+                </div>
+                <div className="text-left">
+                  <div className="text-white text-sm font-medium">切换到物理实验室</div>
+                  <div className="text-white/50 text-xs">弹簧绳索铰链滑轮</div>
+                </div>
+              </button>
+              <button
                 onClick={() => setGameMode('roboticArm')}
                 className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-purple-500/20 to-indigo-500/20 border border-purple-500/30 hover:from-purple-500/30 hover:to-indigo-500/30 transition-all duration-200 group"
               >
@@ -708,6 +773,357 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild, onRe
     );
   }
 
+  if (gameMode === 'physicsLab') {
+    const totalLabObjects = labObjects.size;
+    const totalConstraints = labConstraints.size;
+
+    return (
+      <div className="fixed inset-0 pointer-events-none z-50">
+        <div className="absolute top-4 left-4 pointer-events-auto">
+          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
+                <FlaskConical className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-white font-bold text-lg leading-tight">物理实验室</h1>
+                <p className="text-white/50 text-xs">弹簧 · 绳索 · 铰链 · 滑轮</p>
+              </div>
+            </div>
+
+            <div className="mb-3">
+              <div className="text-white/70 text-xs mb-2 font-medium uppercase tracking-wider">工具选择</div>
+              <div className="grid grid-cols-4 gap-1.5">
+                {labToolConfigs.map((config) => {
+                  const Icon = config.icon;
+                  const isActive = labTool === config.type;
+                  return (
+                    <button
+                      key={config.type}
+                      onClick={() => setLabTool(config.type)}
+                      className={`relative group p-2 rounded-xl transition-all duration-300 border ${
+                        isActive
+                          ? `bg-gradient-to-br ${config.color} border-white/30 shadow-lg`
+                          : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                      }`}
+                    >
+                      <div className="flex flex-col items-center gap-0.5">
+                        <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-white/70'}`} />
+                        <span className={`text-[10px] font-medium ${isActive ? 'text-white' : 'text-white/70'}`}>
+                          {config.name}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {labTool === 'placeObject' && (
+              <div className="mb-3">
+                <div className="text-white/70 text-xs mb-2 font-medium uppercase tracking-wider">物体类型</div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {labObjectConfigs.map((config) => {
+                    const Icon = config.icon;
+                    const isActive = selectedLabObjectType === config.type;
+                    return (
+                      <button
+                        key={config.type}
+                        onClick={() => setSelectedLabObjectType(config.type)}
+                        className={`relative group p-2 rounded-xl transition-all duration-300 border ${
+                          isActive
+                            ? `bg-gradient-to-br ${config.bgClass} border-white/30 shadow-lg scale-105`
+                            : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                        }`}
+                      >
+                        <div className="flex flex-col items-center gap-0.5">
+                          <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-white/70'}`} />
+                          <span className={`text-[10px] font-medium ${isActive ? 'text-white' : 'text-white/70'}`}>
+                            {config.name}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {labTool === 'placeConstraint' && (
+              <div className="mb-3">
+                <div className="text-white/70 text-xs mb-2 font-medium uppercase tracking-wider">约束类型</div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {constraintTypeConfigs.map((config) => {
+                    const Icon = config.icon;
+                    const isActive = selectedConstraintType === config.type;
+                    return (
+                      <button
+                        key={config.type}
+                        onClick={() => setSelectedConstraintType(config.type)}
+                        className={`relative group p-2 rounded-xl transition-all duration-300 border ${
+                          isActive
+                            ? `bg-gradient-to-br ${config.bgClass} border-white/30 shadow-lg scale-105`
+                            : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                        }`}
+                      >
+                        <div className="flex flex-col items-center gap-0.5">
+                          <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-white/70'}`} />
+                          <span className={`text-[10px] font-medium ${isActive ? 'text-white' : 'text-white/70'}`}>
+                            {config.name}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                {constraintStartObjectId && (
+                  <div className="mt-2 p-2 rounded-lg bg-green-500/20 border border-green-500/30">
+                    <div className="text-green-300 text-xs flex items-center gap-1.5">
+                      <Unlink className="w-3.5 h-3.5" />
+                      <span>已选择起点，点击第二个物体</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {(selectedConstraintType === 'spring' || labTool === 'placeConstraint') && (
+              <div className="mb-3 p-3 rounded-xl bg-white/5 border border-white/10">
+                <div className="text-white/70 text-xs mb-2 font-medium uppercase tracking-wider">
+                  {selectedConstraintType === 'spring' ? '弹簧参数' : '约束参数'}
+                </div>
+                {selectedConstraintType === 'spring' && (
+                  <>
+                    <div className="mb-2">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-white/70 text-xs">刚度</span>
+                        <span className="text-white/50 text-xs font-mono">{springStiffness}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={10}
+                        max={500}
+                        value={springStiffness}
+                        onChange={(e) => setSpringStiffness(parseInt(e.target.value))}
+                        className="w-full h-2 rounded-full appearance-none cursor-pointer"
+                        style={{
+                          background: `linear-gradient(to right, #ff6b6b 0%, #ff6b6b ${((springStiffness - 10) / 490) * 100}%, rgba(255,255,255,0.1) ${((springStiffness - 10) / 490) * 100}%, rgba(255,255,255,0.1) 100%)`,
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-white/70 text-xs">阻尼</span>
+                        <span className="text-white/50 text-xs font-mono">{springDamping}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={1}
+                        max={50}
+                        value={springDamping}
+                        onChange={(e) => setSpringDamping(parseInt(e.target.value))}
+                        className="w-full h-2 rounded-full appearance-none cursor-pointer"
+                        style={{
+                          background: `linear-gradient(to right, #feca57 0%, #feca57 ${((springDamping - 1) / 49) * 100}%, rgba(255,255,255,0.1) ${((springDamping - 1) / 49) * 100}%, rgba(255,255,255,0.1) 100%)`,
+                        }}
+                      />
+                    </div>
+                  </>
+                )}
+                {selectedConstraintType === 'rope' && (
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-white/70 text-xs">绳长</span>
+                      <span className="text-white/50 text-xs font-mono">{ropeLength.toFixed(1)}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={1}
+                      max={15}
+                      step={0.5}
+                      value={ropeLength}
+                      onChange={(e) => setRopeLength(parseFloat(e.target.value))}
+                      className="w-full h-2 rounded-full appearance-none cursor-pointer"
+                      style={{
+                        background: `linear-gradient(to right, #feca57 0%, #feca57 ${((ropeLength - 1) / 14) * 100}%, rgba(255,255,255,0.1) ${((ropeLength - 1) / 14) * 100}%, rgba(255,255,255,0.1) 100%)`,
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            <button
+              onClick={onResetPhysicsLab}
+              className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-gradient-to-r from-red-500/20 to-pink-500/20 border border-red-500/30 hover:from-red-500/30 hover:to-pink-500/30 transition-all duration-200 group"
+            >
+              <RotateCcw className="w-5 h-5 text-white" />
+              <span className="text-white text-sm font-medium">重置实验室</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="absolute top-4 right-4 pointer-events-auto">
+          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl">
+            <div className="text-white/70 text-xs mb-3 font-medium uppercase tracking-wider">模式切换</div>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => setGameMode('destroy')}
+                className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-red-500/20 to-orange-500/20 border border-red-500/30 hover:from-red-500/30 hover:to-orange-500/30 transition-all duration-200 group"
+              >
+                <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-red-500 to-orange-600 flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <Swords className="w-5 h-5 text-white" />
+                </div>
+                <div className="text-left">
+                  <div className="text-white text-sm font-medium">切换到破坏模式</div>
+                  <div className="text-white/50 text-xs">使用武器摧毁建筑</div>
+                </div>
+              </button>
+              <button
+                onClick={() => setGameMode('build')}
+                className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-emerald-500/20 to-teal-500/20 border border-emerald-500/30 hover:from-emerald-500/30 hover:to-teal-500/30 transition-all duration-200 group"
+              >
+                <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <Wrench className="w-5 h-5 text-white" />
+                </div>
+                <div className="text-left">
+                  <div className="text-white text-sm font-medium">切换到建造模式</div>
+                  <div className="text-white/50 text-xs">自由建造创意建筑</div>
+                </div>
+              </button>
+              <button
+                onClick={() => setGameMode('roboticArm')}
+                className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-purple-500/20 to-indigo-500/20 border border-purple-500/30 hover:from-purple-500/30 hover:to-indigo-500/30 transition-all duration-200 group"
+              >
+                <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <Bot className="w-5 h-5 text-white" />
+                </div>
+                <div className="text-left">
+                  <div className="text-white text-sm font-medium">切换到机械臂模式</div>
+                  <div className="text-white/50 text-xs">操控机械臂抓取抛掷</div>
+                </div>
+              </button>
+            </div>
+
+            <div className="mt-4 pt-4 border-t border-white/10">
+              <div className="text-white/70 text-xs mb-3 font-medium uppercase tracking-wider flex items-center gap-2">
+                <span>重力方向</span>
+                <span className="text-xs font-normal text-white/50">
+                  {GRAVITY_LABELS[gravityDirection]}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {gravityConfigs.map((config) => {
+                  const Icon = config.icon;
+                  const isActive = gravityDirection === config.type;
+                  return (
+                    <button
+                      key={config.type}
+                      onClick={() => setGravityDirection(config.type)}
+                      className={`relative group p-2.5 rounded-xl transition-all duration-300 border ${
+                        isActive
+                          ? `bg-gradient-to-br ${config.color} border-white/30 shadow-lg scale-105`
+                          : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                      }`}
+                      title={config.name}
+                    >
+                      <div className="flex flex-col items-center gap-1">
+                        <Icon className={`w-5 h-5 ${isActive ? 'text-white' : 'text-white/70'}`} />
+                        <span className={`text-[10px] font-medium ${isActive ? 'text-white' : 'text-white/70'}`}>
+                          {config.name}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="absolute bottom-4 left-4 pointer-events-auto">
+          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl">
+            <div className="flex items-center gap-4">
+              <div>
+                <div className="text-white/50 text-xs uppercase tracking-wider">物体数量</div>
+                <div className="flex items-baseline gap-2 mt-1">
+                  <span className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+                    {totalLabObjects}
+                  </span>
+                  <span className="text-white/40 text-sm">个</span>
+                </div>
+              </div>
+              <div className="w-px h-10 bg-white/10" />
+              <div>
+                <div className="text-white/50 text-xs uppercase tracking-wider">约束数量</div>
+                <div className="flex items-baseline gap-2 mt-1">
+                  <span className="text-2xl font-bold text-white/80">{totalConstraints}</span>
+                  <span className="text-white/40 text-sm">个</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="absolute bottom-4 right-4 pointer-events-auto">
+          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl max-w-xs">
+            <div className="text-white/70 text-xs mb-2 font-medium uppercase tracking-wider">操作提示</div>
+            <div className="space-y-2 text-sm">
+              {labTool === 'placeObject' && (
+                <>
+                  <div className="flex items-center gap-2 text-white/80">
+                    <span className="px-2 py-0.5 rounded bg-white/10 text-white font-mono text-xs">左键点击</span>
+                    <span>放置物理物体</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-white/80">
+                    <span className="px-2 py-0.5 rounded bg-white/10 text-white font-mono text-xs">滚轮</span>
+                    <span>缩放视角</span>
+                  </div>
+                </>
+              )}
+              {labTool === 'placeConstraint' && (
+                <>
+                  <div className="flex items-center gap-2 text-white/80">
+                    <span className="px-2 py-0.5 rounded bg-white/10 text-white font-mono text-xs">点击第一个物体</span>
+                    <span>选择约束起点</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-white/80">
+                    <span className="px-2 py-0.5 rounded bg-white/10 text-white font-mono text-xs">点击第二个物体</span>
+                    <span>创建约束连接</span>
+                  </div>
+                  <div className="mt-2 p-2 rounded-lg bg-cyan-500/20 border border-cyan-500/30">
+                    <div className="text-cyan-300 text-xs flex items-center gap-1">
+                      <Link className="w-3 h-3" />
+                      弹簧/绳索/铰链/距离约束自由组合
+                    </div>
+                  </div>
+                </>
+              )}
+              {labTool === 'select' && (
+                <div className="flex items-center gap-2 text-white/80">
+                  <span className="px-2 py-0.5 rounded bg-white/10 text-white font-mono text-xs">左键点击</span>
+                  <span>选中物体</span>
+                </div>
+              )}
+              {labTool === 'delete' && (
+                <div className="flex items-center gap-2 text-white/80">
+                  <span className="px-2 py-0.5 rounded bg-white/10 text-white font-mono text-xs">左键点击</span>
+                  <span>删除物体及约束</span>
+                </div>
+              )}
+              <div className="border-t border-white/10 pt-2 mt-2">
+                <div className="flex items-center gap-2 text-white/80">
+                  <span className="px-2 py-0.5 rounded bg-white/10 text-white font-mono text-xs">右键拖动</span>
+                  <span>旋转视角</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 pointer-events-none z-50">
       <div className="absolute top-4 left-4 pointer-events-auto">
@@ -819,6 +1235,18 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild, onRe
         <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl">
           <div className="text-white/70 text-xs mb-3 font-medium uppercase tracking-wider">场景控制</div>
           <div className="flex flex-col gap-2">
+            <button
+              onClick={() => setGameMode('physicsLab')}
+              className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-cyan-500/20 to-blue-500/20 border border-cyan-500/30 hover:from-cyan-500/30 hover:to-blue-500/30 transition-all duration-200 group"
+            >
+              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center group-hover:scale-110 transition-transform">
+                <FlaskConical className="w-5 h-5 text-white" />
+              </div>
+              <div className="text-left">
+                <div className="text-white text-sm font-medium">切换到物理实验室</div>
+                <div className="text-white/50 text-xs">弹簧绳索铰链滑轮</div>
+              </div>
+            </button>
             <button
               onClick={() => setGameMode('roboticArm')}
               className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-purple-500/20 to-indigo-500/20 border border-purple-500/30 hover:from-purple-500/30 hover:to-indigo-500/30 transition-all duration-200 group"

@@ -15,6 +15,7 @@ import { BuildMode } from './BuildMode';
 import { AudioControlPanel } from './AudioControlPanel';
 import { SprayTool } from './SprayTool';
 import { RoboticArm } from './RoboticArm';
+import { PhysicsLab } from './PhysicsLab';
 
 interface ExplosionInstance {
   id: string;
@@ -340,6 +341,12 @@ export function GameScene() {
     initRef.current = true;
   }, [resetGame, handleSpawnRoboticArmBlocks]);
 
+  const handleResetPhysicsLab = useCallback(() => {
+    initRef.current = false;
+    useGameStore.getState().resetPhysicsLab();
+    initRef.current = true;
+  }, []);
+
   useEffect(() => {
     if (gameMode === 'destroy' && !initRef.current) {
       initRef.current = true;
@@ -382,8 +389,8 @@ export function GameScene() {
         gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
         dpr={[1, 2]}
       >
-        <color attach="background" args={[gameMode === 'build' ? '#1a2a1a' : gameMode === 'roboticArm' ? '#1a1a2e' : '#2a2a4e']} />
-        <fog attach="fog" args={[gameMode === 'build' ? '#1a2a1a' : gameMode === 'roboticArm' ? '#1a1a2e' : '#2a2a4e', 60, 120]} />
+        <color attach="background" args={[gameMode === 'build' ? '#1a2a1a' : gameMode === 'roboticArm' ? '#1a1a2e' : gameMode === 'physicsLab' ? '#0f172a' : '#2a2a4e']} />
+        <fog attach="fog" args={[gameMode === 'build' ? '#1a2a1a' : gameMode === 'roboticArm' ? '#1a1a2e' : gameMode === 'physicsLab' ? '#0f172a' : '#2a2a4e', 60, 120]} />
 
         {gameMode === 'build' ? <BuildSceneLighting /> : <SceneLighting />}
 
@@ -472,6 +479,20 @@ export function GameScene() {
 
         {gameMode === 'roboticArm' && <Particles maxParticles={500} />}
 
+        {gameMode === 'physicsLab' && <Ground gravityDirection={gravityDirection} />}
+
+        {gameMode === 'physicsLab' && (
+          <PhysicsLab
+            addPhysicsBody={addBody}
+            removePhysicsBody={removeBody}
+            getPhysicsBody={getBody}
+            addConstraint={addConstraint}
+            removeConstraint={removeConstraint}
+          />
+        )}
+
+        {gameMode === 'physicsLab' && <Particles maxParticles={300} />}
+
         <SprayTool />
 
         <OrbitControls
@@ -485,7 +506,7 @@ export function GameScene() {
           makeDefault
           target={(() => {
             switch (gravityDirection) {
-              case 'down': return [0, gameMode === 'build' ? 1 : gameMode === 'roboticArm' ? 3 : 3, 0];
+              case 'down': return [0, gameMode === 'build' ? 1 : gameMode === 'roboticArm' ? 3 : gameMode === 'physicsLab' ? 3 : 3, 0];
               case 'up': return [0, gameMode === 'build' ? 49 : 47, 0];
               case 'left': return [-49, gameMode === 'build' ? 1 : 3, 0];
               case 'right': return [49, gameMode === 'build' ? 1 : 3, 0];
@@ -496,11 +517,11 @@ export function GameScene() {
           })()}
         />
 
-        {(gameMode === 'destroy' || gameMode === 'roboticArm') && <PhysicsStepper step={step} />}
+        {(gameMode === 'destroy' || gameMode === 'roboticArm' || gameMode === 'physicsLab') && <PhysicsStepper step={step} />}
 
         <EffectComposer multisampling={8} enableNormalPass={false}>
           <Bloom
-            intensity={gameMode === 'build' ? 0.3 : gameMode === 'roboticArm' ? 0.5 : 0.6}
+            intensity={gameMode === 'build' ? 0.3 : gameMode === 'roboticArm' ? 0.5 : gameMode === 'physicsLab' ? 0.7 : 0.6}
             luminanceThreshold={0.6}
             luminanceSmoothing={0.9}
             mipmapBlur
@@ -510,7 +531,7 @@ export function GameScene() {
             radialModulation={false}
             modulationOffset={0}
           />
-          <Vignette eskil={false} offset={0.3} darkness={gameMode === 'build' ? 0.4 : gameMode === 'roboticArm' ? 0.5 : 0.7} />
+          <Vignette eskil={false} offset={0.3} darkness={gameMode === 'build' ? 0.4 : gameMode === 'roboticArm' ? 0.5 : gameMode === 'physicsLab' ? 0.6 : 0.7} />
         </EffectComposer>
       </Canvas>
 
@@ -519,6 +540,7 @@ export function GameScene() {
         onRegenerateBuilding={handleRegenerateBuilding}
         onClearBuild={handleClearBuild}
         onResetRoboticArm={handleResetRoboticArm}
+        onResetPhysicsLab={handleResetPhysicsLab}
       />
 
       {gameMode === 'destroy' && <AudioControlPanel />}

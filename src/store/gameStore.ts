@@ -3,9 +3,12 @@ import * as CANNON from 'cannon-es';
 
 export type WeaponType = 'wreckingBall' | 'steelBall' | 'explosive' | 'sprayPaint';
 export type MaterialType = 'wood' | 'glass' | 'concrete';
-export type GameMode = 'destroy' | 'build' | 'roboticArm';
+export type GameMode = 'destroy' | 'build' | 'roboticArm' | 'physicsLab';
 export type BuildTool = 'place' | 'move' | 'rotate' | 'delete' | 'sprayPaint';
 export type GravityDirection = 'down' | 'up' | 'left' | 'right' | 'forward' | 'backward';
+export type ConstraintType = 'spring' | 'rope' | 'hinge' | 'pulley' | 'distance';
+export type LabObjectType = 'box' | 'sphere' | 'cylinder' | 'groundAnchor' | 'weight';
+export type LabTool = 'placeObject' | 'placeConstraint' | 'select' | 'delete' | 'move';
 
 export const GRAVITY_VECTORS: Record<GravityDirection, [number, number, number]> = {
   down: [0, -30, 0],
@@ -101,6 +104,35 @@ export interface RoboticArmState {
   grabbedBlockId: string | null;
 }
 
+export interface LabObjectData {
+  id: string;
+  type: LabObjectType;
+  position: [number, number, number];
+  size?: [number, number, number];
+  radius?: number;
+  height?: number;
+  mass: number;
+  color: string;
+  isStatic: boolean;
+  rotation?: [number, number, number];
+}
+
+export interface LabConstraintData {
+  id: string;
+  type: ConstraintType;
+  bodyAId: string;
+  bodyBId: string;
+  pivotA?: [number, number, number];
+  pivotB?: [number, number, number];
+  axisA?: [number, number, number];
+  axisB?: [number, number, number];
+  restLength?: number;
+  stiffness?: number;
+  damping?: number;
+  maxForce?: number;
+  angle?: number;
+}
+
 interface GameState {
   weapon: WeaponType;
   setWeapon: (weapon: WeaponType) => void;
@@ -164,6 +196,30 @@ interface GameState {
   setRoboticArmGrabbing: (grabbing: boolean) => void;
   setRoboticArmGrabbedBlockId: (id: string | null) => void;
   resetRoboticArm: () => void;
+  labObjects: Map<string, LabObjectData>;
+  labConstraints: Map<string, LabConstraintData>;
+  labTool: LabTool;
+  selectedLabObjectId: string | null;
+  selectedConstraintType: ConstraintType;
+  selectedLabObjectType: LabObjectType;
+  constraintStartObjectId: string | null;
+  springStiffness: number;
+  springDamping: number;
+  ropeLength: number;
+  addLabObject: (obj: LabObjectData) => void;
+  removeLabObject: (id: string) => void;
+  updateLabObjectPosition: (id: string, position: [number, number, number]) => void;
+  addLabConstraint: (constraint: LabConstraintData) => void;
+  removeLabConstraint: (id: string) => void;
+  setLabTool: (tool: LabTool) => void;
+  setSelectedLabObjectId: (id: string | null) => void;
+  setSelectedConstraintType: (type: ConstraintType) => void;
+  setSelectedLabObjectType: (type: LabObjectType) => void;
+  setConstraintStartObjectId: (id: string | null) => void;
+  setSpringStiffness: (value: number) => void;
+  setSpringDamping: (value: number) => void;
+  setRopeLength: (value: number) => void;
+  resetPhysicsLab: () => void;
 }
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
@@ -548,6 +604,66 @@ export const useGameStore = create<GameState>((set, get) => ({
       undoStack: [],
       redoStack: [],
       selectedBlockId: null,
+    });
+  },
+  labObjects: new Map(),
+  labConstraints: new Map(),
+  labTool: 'placeObject',
+  selectedLabObjectId: null,
+  selectedConstraintType: 'spring',
+  selectedLabObjectType: 'box',
+  constraintStartObjectId: null,
+  springStiffness: 100,
+  springDamping: 10,
+  ropeLength: 5,
+  addLabObject: (obj) => {
+    const labObjects = new Map(get().labObjects);
+    labObjects.set(obj.id, { ...obj });
+    set({ labObjects });
+  },
+  removeLabObject: (id) => {
+    const labObjects = new Map(get().labObjects);
+    const labConstraints = new Map(get().labConstraints);
+    labObjects.delete(id);
+    labConstraints.forEach((constraint, cid) => {
+      if (constraint.bodyAId === id || constraint.bodyBId === id) {
+        labConstraints.delete(cid);
+      }
+    });
+    set({ labObjects, labConstraints });
+  },
+  updateLabObjectPosition: (id, position) => {
+    const labObjects = new Map(get().labObjects);
+    const obj = labObjects.get(id);
+    if (obj) {
+      labObjects.set(id, { ...obj, position: [...position] as [number, number, number] });
+      set({ labObjects });
+    }
+  },
+  addLabConstraint: (constraint) => {
+    const labConstraints = new Map(get().labConstraints);
+    labConstraints.set(constraint.id, { ...constraint });
+    set({ labConstraints });
+  },
+  removeLabConstraint: (id) => {
+    const labConstraints = new Map(get().labConstraints);
+    labConstraints.delete(id);
+    set({ labConstraints });
+  },
+  setLabTool: (tool) => set({ labTool: tool, constraintStartObjectId: null, selectedLabObjectId: null }),
+  setSelectedLabObjectId: (id) => set({ selectedLabObjectId: id }),
+  setSelectedConstraintType: (type) => set({ selectedConstraintType: type }),
+  setSelectedLabObjectType: (type) => set({ selectedLabObjectType: type }),
+  setConstraintStartObjectId: (id) => set({ constraintStartObjectId: id }),
+  setSpringStiffness: (value) => set({ springStiffness: value }),
+  setSpringDamping: (value) => set({ springDamping: value }),
+  setRopeLength: (value) => set({ ropeLength: value }),
+  resetPhysicsLab: () => {
+    set({
+      labObjects: new Map(),
+      labConstraints: new Map(),
+      selectedLabObjectId: null,
+      constraintStartObjectId: null,
     });
   },
 }));
