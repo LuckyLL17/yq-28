@@ -3,7 +3,7 @@ import * as CANNON from 'cannon-es';
 
 export type WeaponType = 'wreckingBall' | 'steelBall' | 'explosive' | 'sprayPaint';
 export type MaterialType = 'wood' | 'glass' | 'concrete';
-export type GameMode = 'destroy' | 'build';
+export type GameMode = 'destroy' | 'build' | 'roboticArm';
 export type BuildTool = 'place' | 'move' | 'rotate' | 'delete' | 'sprayPaint';
 export type GravityDirection = 'down' | 'up' | 'left' | 'right' | 'forward' | 'backward';
 
@@ -91,6 +91,16 @@ export type BuildAction =
   | { type: 'move'; blockId: string; fromPosition: [number, number, number]; toPosition: [number, number, number] }
   | { type: 'rotate'; blockId: string; fromRotation: [number, number, number]; toRotation: [number, number, number] };
 
+export interface RoboticArmState {
+  baseAngle: number;
+  shoulderAngle: number;
+  elbowAngle: number;
+  wristAngle: number;
+  gripperOpen: boolean;
+  isGrabbing: boolean;
+  grabbedBlockId: string | null;
+}
+
 interface GameState {
   weapon: WeaponType;
   setWeapon: (weapon: WeaponType) => void;
@@ -145,6 +155,15 @@ interface GameState {
   updateAudioEffectsConfig: (config: Partial<AudioEffectsConfig>) => void;
   gravityDirection: GravityDirection;
   setGravityDirection: (direction: GravityDirection) => void;
+  roboticArm: RoboticArmState;
+  setRoboticArmBaseAngle: (angle: number) => void;
+  setRoboticArmShoulderAngle: (angle: number) => void;
+  setRoboticArmElbowAngle: (angle: number) => void;
+  setRoboticArmWristAngle: (angle: number) => void;
+  setRoboticArmGripperOpen: (open: boolean) => void;
+  setRoboticArmGrabbing: (grabbing: boolean) => void;
+  setRoboticArmGrabbedBlockId: (id: string | null) => void;
+  resetRoboticArm: () => void;
 }
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
@@ -274,6 +293,41 @@ export const useGameStore = create<GameState>((set, get) => ({
     })),
   gravityDirection: 'down',
   setGravityDirection: (direction) => set({ gravityDirection: direction }),
+  roboticArm: {
+    baseAngle: 0,
+    shoulderAngle: -Math.PI / 4,
+    elbowAngle: Math.PI / 2,
+    wristAngle: 0,
+    gripperOpen: true,
+    isGrabbing: false,
+    grabbedBlockId: null,
+  },
+  setRoboticArmBaseAngle: (angle) =>
+    set((state) => ({ roboticArm: { ...state.roboticArm, baseAngle: angle } })),
+  setRoboticArmShoulderAngle: (angle) =>
+    set((state) => ({ roboticArm: { ...state.roboticArm, shoulderAngle: angle } })),
+  setRoboticArmElbowAngle: (angle) =>
+    set((state) => ({ roboticArm: { ...state.roboticArm, elbowAngle: angle } })),
+  setRoboticArmWristAngle: (angle) =>
+    set((state) => ({ roboticArm: { ...state.roboticArm, wristAngle: angle } })),
+  setRoboticArmGripperOpen: (open) =>
+    set((state) => ({ roboticArm: { ...state.roboticArm, gripperOpen: open } })),
+  setRoboticArmGrabbing: (grabbing) =>
+    set((state) => ({ roboticArm: { ...state.roboticArm, isGrabbing: grabbing } })),
+  setRoboticArmGrabbedBlockId: (id) =>
+    set((state) => ({ roboticArm: { ...state.roboticArm, grabbedBlockId: id } })),
+  resetRoboticArm: () =>
+    set({
+      roboticArm: {
+        baseAngle: 0,
+        shoulderAngle: -Math.PI / 4,
+        elbowAngle: Math.PI / 2,
+        wristAngle: 0,
+        gripperOpen: true,
+        isGrabbing: false,
+        grabbedBlockId: null,
+      },
+    }),
   addBlock: (block) => {
     const blocks = new Map(get().blocks);
     blocks.set(block.id, { ...block });

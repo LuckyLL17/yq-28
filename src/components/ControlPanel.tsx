@@ -1,10 +1,11 @@
 import { useGameStore, WeaponType, MaterialType, BuildTool, GravityDirection, GRAVITY_LABELS } from '@/store/gameStore';
-import { Hammer, Circle, Bomb, RotateCcw, Building2, Castle, Eye, Undo2, Redo2, Trash2, Move, RotateCw, Plus, Box, Wrench, Swords, SprayCan, ArrowDown, ArrowUp, ArrowLeft, ArrowRight, CircleDot, CircleX } from 'lucide-react';
+import { Hammer, Circle, Bomb, RotateCcw, Building2, Castle, Eye, Undo2, Redo2, Trash2, Move, RotateCw, Plus, Box, Wrench, Swords, SprayCan, ArrowDown, ArrowUp, ArrowLeft, ArrowRight, CircleDot, CircleX, Bot, Grip, RefreshCw } from 'lucide-react';
 
 interface ControlPanelProps {
   onReset: () => void;
   onRegenerateBuilding: (type: 'building' | 'castle') => void;
   onClearBuild: () => void;
+  onResetRoboticArm: () => void;
 }
 
 const weaponConfigs: { type: WeaponType; name: string; description: string; icon: typeof Hammer; color: string }[] = [
@@ -67,7 +68,7 @@ const SPRAY_COLORS = [
   '#6633ff', '#cc33ff', '#ff33cc', '#ffffff', '#000000',
 ];
 
-export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild }: ControlPanelProps) {
+export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild, onResetRoboticArm }: ControlPanelProps) {
   const weapon = useGameStore((s) => s.weapon);
   const setWeapon = useGameStore((s) => s.setWeapon);
   const blocks = useGameStore((s) => s.blocks);
@@ -90,8 +91,282 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild }: Co
   const setSpraySize = useGameStore((s) => s.setSpraySize);
   const gravityDirection = useGameStore((s) => s.gravityDirection);
   const setGravityDirection = useGameStore((s) => s.setGravityDirection);
+  const roboticArm = useGameStore((s) => s.roboticArm);
+  const setRoboticArmBaseAngle = useGameStore((s) => s.setRoboticArmBaseAngle);
+  const setRoboticArmShoulderAngle = useGameStore((s) => s.setRoboticArmShoulderAngle);
+  const setRoboticArmElbowAngle = useGameStore((s) => s.setRoboticArmElbowAngle);
+  const setRoboticArmWristAngle = useGameStore((s) => s.setRoboticArmWristAngle);
+  const setRoboticArmGripperOpen = useGameStore((s) => s.setRoboticArmGripperOpen);
+  const resetRoboticArm = useGameStore((s) => s.resetRoboticArm);
 
   const totalBlocks = blocks.size;
+
+  if (gameMode === 'roboticArm') {
+    const toDeg = (rad: number) => Math.round((rad * 180) / Math.PI);
+    const basePercent = ((toDeg(roboticArm.baseAngle) + 180) / 360) * 100;
+    const shoulderPercent = ((toDeg(roboticArm.shoulderAngle) + 135) / 180) * 100;
+    const elbowPercent = ((toDeg(roboticArm.elbowAngle) - 20) / 150) * 100;
+    const wristPercent = ((toDeg(roboticArm.wristAngle) + 90) / 180) * 100;
+
+    return (
+      <div className="fixed inset-0 pointer-events-none z-50">
+        <div className="absolute top-4 left-4 pointer-events-auto">
+          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center">
+                <Bot className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-white font-bold text-lg leading-tight">机械臂操控</h1>
+                <p className="text-white/50 text-xs">关节控制 · 抓取抛掷</p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-white/70 text-xs font-medium">底座旋转</span>
+                  <span className="text-white/50 text-xs font-mono">{toDeg(roboticArm.baseAngle)}°</span>
+                </div>
+                <input
+                  type="range"
+                  min={-180}
+                  max={180}
+                  value={toDeg(roboticArm.baseAngle)}
+                  onChange={(e) => setRoboticArmBaseAngle((parseInt(e.target.value) * Math.PI) / 180)}
+                  className="w-full h-2 rounded-full appearance-none cursor-pointer"
+                  style={{
+                    background: `linear-gradient(to right, #a855f7 0%, #a855f7 ${basePercent}%, rgba(255,255,255,0.1) ${basePercent}%, rgba(255,255,255,0.1) 100%)`,
+                  }}
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-white/70 text-xs font-medium">肩关节</span>
+                  <span className="text-white/50 text-xs font-mono">{toDeg(roboticArm.shoulderAngle)}°</span>
+                </div>
+                <input
+                  type="range"
+                  min={-135}
+                  max={45}
+                  value={toDeg(roboticArm.shoulderAngle)}
+                  onChange={(e) => setRoboticArmShoulderAngle((parseInt(e.target.value) * Math.PI) / 180)}
+                  className="w-full h-2 rounded-full appearance-none cursor-pointer"
+                  style={{
+                    background: `linear-gradient(to right, #ec4899 0%, #ec4899 ${shoulderPercent}%, rgba(255,255,255,0.1) ${shoulderPercent}%, rgba(255,255,255,0.1) 100%)`,
+                  }}
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-white/70 text-xs font-medium">肘关节</span>
+                  <span className="text-white/50 text-xs font-mono">{toDeg(roboticArm.elbowAngle)}°</span>
+                </div>
+                <input
+                  type="range"
+                  min={20}
+                  max={170}
+                  value={toDeg(roboticArm.elbowAngle)}
+                  onChange={(e) => setRoboticArmElbowAngle((parseInt(e.target.value) * Math.PI) / 180)}
+                  className="w-full h-2 rounded-full appearance-none cursor-pointer"
+                  style={{
+                    background: `linear-gradient(to right, #f97316 0%, #f97316 ${elbowPercent}%, rgba(255,255,255,0.1) ${elbowPercent}%, rgba(255,255,255,0.1) 100%)`,
+                  }}
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-white/70 text-xs font-medium">腕关节</span>
+                  <span className="text-white/50 text-xs font-mono">{toDeg(roboticArm.wristAngle)}°</span>
+                </div>
+                <input
+                  type="range"
+                  min={-90}
+                  max={90}
+                  value={toDeg(roboticArm.wristAngle)}
+                  onChange={(e) => setRoboticArmWristAngle((parseInt(e.target.value) * Math.PI) / 180)}
+                  className="w-full h-2 rounded-full appearance-none cursor-pointer"
+                  style={{
+                    background: `linear-gradient(to right, #eab308 0%, #eab308 ${wristPercent}%, rgba(255,255,255,0.1) ${wristPercent}%, rgba(255,255,255,0.1) 100%)`,
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-white/10">
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setRoboticArmGripperOpen(!roboticArm.gripperOpen)}
+                  className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-xl border transition-all duration-200 ${
+                    roboticArm.gripperOpen
+                      ? 'bg-gradient-to-r from-emerald-500/20 to-teal-500/20 border-emerald-500/30'
+                      : 'bg-gradient-to-r from-orange-500/20 to-red-500/20 border-orange-500/30'
+                  }`}
+                >
+                  <Grip className="w-5 h-5 text-white" />
+                  <span className="text-white text-sm font-medium">
+                    {roboticArm.gripperOpen ? '张开' : '夹紧'}
+                  </span>
+                </button>
+                <button
+                  onClick={onResetRoboticArm}
+                  className="flex items-center justify-center gap-2 p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all duration-200"
+                  title="重置场景"
+                >
+                  <RefreshCw className="w-5 h-5 text-white/70" />
+                </button>
+              </div>
+            </div>
+
+            {roboticArm.isGrabbing && (
+              <div className="mt-3 p-2.5 rounded-xl bg-green-500/20 border border-green-500/30">
+                <div className="text-green-300 text-xs flex items-center gap-1.5">
+                  <Grip className="w-3.5 h-3.5" />
+                  <span>已抓取方块，空格键释放</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="absolute top-4 right-4 pointer-events-auto">
+          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl">
+            <div className="text-white/70 text-xs mb-3 font-medium uppercase tracking-wider">模式切换</div>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => setGameMode('destroy')}
+                className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-red-500/20 to-orange-500/20 border border-red-500/30 hover:from-red-500/30 hover:to-orange-500/30 transition-all duration-200 group"
+              >
+                <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-red-500 to-orange-600 flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <Swords className="w-5 h-5 text-white" />
+                </div>
+                <div className="text-left">
+                  <div className="text-white text-sm font-medium">切换到破坏模式</div>
+                  <div className="text-white/50 text-xs">使用武器摧毁建筑</div>
+                </div>
+              </button>
+              <button
+                onClick={() => setGameMode('build')}
+                className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-emerald-500/20 to-teal-500/20 border border-emerald-500/30 hover:from-emerald-500/30 hover:to-teal-500/30 transition-all duration-200 group"
+              >
+                <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <Wrench className="w-5 h-5 text-white" />
+                </div>
+                <div className="text-left">
+                  <div className="text-white text-sm font-medium">切换到建造模式</div>
+                  <div className="text-white/50 text-xs">自由建造创意建筑</div>
+                </div>
+              </button>
+            </div>
+
+            <div className="mt-4 pt-4 border-t border-white/10">
+              <div className="text-white/70 text-xs mb-3 font-medium uppercase tracking-wider flex items-center gap-2">
+                <span>重力方向</span>
+                <span className="text-xs font-normal text-white/50">
+                  {GRAVITY_LABELS[gravityDirection]}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {gravityConfigs.map((config) => {
+                  const Icon = config.icon;
+                  const isActive = gravityDirection === config.type;
+                  return (
+                    <button
+                      key={config.type}
+                      onClick={() => setGravityDirection(config.type)}
+                      className={`relative group p-2.5 rounded-xl transition-all duration-300 border ${
+                        isActive
+                          ? `bg-gradient-to-br ${config.color} border-white/30 shadow-lg scale-105`
+                          : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                      }`}
+                      title={config.name}
+                    >
+                      <div className="flex flex-col items-center gap-1">
+                        <Icon className={`w-5 h-5 ${isActive ? 'text-white' : 'text-white/70'}`} />
+                        <span className={`text-[10px] font-medium ${isActive ? 'text-white' : 'text-white/70'}`}>
+                          {config.name}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="absolute bottom-4 left-4 pointer-events-auto">
+          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl">
+            <div className="flex items-center gap-4">
+              <div>
+                <div className="text-white/50 text-xs uppercase tracking-wider">场景方块</div>
+                <div className="flex items-baseline gap-2 mt-1">
+                  <span className="text-3xl font-bold bg-gradient-to-r from-purple-400 to-indigo-400 bg-clip-text text-transparent">
+                    {totalBlocks}
+                  </span>
+                  <span className="text-white/40 text-sm">块</span>
+                </div>
+              </div>
+              <div className="w-px h-10 bg-white/10" />
+              <div>
+                <div className="text-white/50 text-xs uppercase tracking-wider">抓取状态</div>
+                <div className="flex items-center gap-2 mt-1">
+                  <div
+                    className={`w-3 h-3 rounded-full ${
+                      roboticArm.isGrabbing ? 'bg-green-400 animate-pulse' : 'bg-gray-500'
+                    }`}
+                  />
+                  <span className="text-white/80 text-sm">
+                    {roboticArm.isGrabbing ? '已抓取' : '空闲'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="absolute bottom-4 right-4 pointer-events-auto">
+          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl max-w-xs">
+            <div className="text-white/70 text-xs mb-2 font-medium uppercase tracking-wider">操作提示</div>
+            <div className="space-y-2 text-sm">
+              <div className="flex items-center gap-2 text-white/80">
+                <span className="px-2 py-0.5 rounded bg-white/10 text-white font-mono text-xs">W / S</span>
+                <span>肩关节上下</span>
+              </div>
+              <div className="flex items-center gap-2 text-white/80">
+                <span className="px-2 py-0.5 rounded bg-white/10 text-white font-mono text-xs">A / D</span>
+                <span>底座左右旋转</span>
+              </div>
+              <div className="flex items-center gap-2 text-white/80">
+                <span className="px-2 py-0.5 rounded bg-white/10 text-white font-mono text-xs">Q / E</span>
+                <span>肘关节弯曲</span>
+              </div>
+              <div className="flex items-center gap-2 text-white/80">
+                <span className="px-2 py-0.5 rounded bg-white/10 text-white font-mono text-xs">Z / X</span>
+                <span>腕关节旋转</span>
+              </div>
+              <div className="flex items-center gap-2 text-white/80">
+                <span className="px-2 py-0.5 rounded bg-white/10 text-white font-mono text-xs">空格</span>
+                <span>抓取 / 释放</span>
+              </div>
+              <div className="flex items-center gap-2 text-white/80">
+                <span className="px-2 py-0.5 rounded bg-white/10 text-white font-mono text-xs">R</span>
+                <span>重置机械臂</span>
+              </div>
+              <div className="border-t border-white/10 pt-2 mt-2">
+                <div className="text-white/60 text-xs">
+                  💡 提示：快速移动机械臂时释放方块可以抛掷
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (gameMode === 'build') {
     return (
@@ -241,6 +516,18 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild }: Co
                 <div className="text-left">
                   <div className="text-white text-sm font-medium">切换到破坏模式</div>
                   <div className="text-white/50 text-xs">使用武器摧毁建筑</div>
+                </div>
+              </button>
+              <button
+                onClick={() => setGameMode('roboticArm')}
+                className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-purple-500/20 to-indigo-500/20 border border-purple-500/30 hover:from-purple-500/30 hover:to-indigo-500/30 transition-all duration-200 group"
+              >
+                <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <Bot className="w-5 h-5 text-white" />
+                </div>
+                <div className="text-left">
+                  <div className="text-white text-sm font-medium">切换到机械臂模式</div>
+                  <div className="text-white/50 text-xs">操控机械臂抓取抛掷</div>
                 </div>
               </button>
               <button
@@ -532,6 +819,18 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild }: Co
         <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl">
           <div className="text-white/70 text-xs mb-3 font-medium uppercase tracking-wider">场景控制</div>
           <div className="flex flex-col gap-2">
+            <button
+              onClick={() => setGameMode('roboticArm')}
+              className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-purple-500/20 to-indigo-500/20 border border-purple-500/30 hover:from-purple-500/30 hover:to-indigo-500/30 transition-all duration-200 group"
+            >
+              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center group-hover:scale-110 transition-transform">
+                <Bot className="w-5 h-5 text-white" />
+              </div>
+              <div className="text-left">
+                <div className="text-white text-sm font-medium">切换到机械臂模式</div>
+                <div className="text-white/50 text-xs">操控机械臂抓取抛掷</div>
+              </div>
+            </button>
             <button
               onClick={() => setGameMode('build')}
               className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-emerald-500/20 to-teal-500/20 border border-emerald-500/30 hover:from-emerald-500/30 hover:to-teal-500/30 transition-all duration-200 group"

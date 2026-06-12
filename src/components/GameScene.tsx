@@ -3,7 +3,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, SoftShadows } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette, ChromaticAberration } from '@react-three/postprocessing';
 import * as THREE from 'three';
-import { useGameStore, MaterialType, generateId, materialProperties, GravityDirection } from '@/store/gameStore';
+import { useGameStore, MaterialType, generateId, materialProperties, GravityDirection, BlockData } from '@/store/gameStore';
 import { usePhysics } from '@/hooks/usePhysics';
 import { Block } from './Block';
 import { generateBuilding, generateCastle } from './BuildingGenerator';
@@ -14,6 +14,7 @@ import { DebrisSystem } from './DebrisSystem';
 import { BuildMode } from './BuildMode';
 import { AudioControlPanel } from './AudioControlPanel';
 import { SprayTool } from './SprayTool';
+import { RoboticArm } from './RoboticArm';
 
 interface ExplosionInstance {
   id: string;
@@ -296,6 +297,49 @@ export function GameScene() {
     useGameStore.getState().clearBuildState();
   }, []);
 
+  const handleSpawnRoboticArmBlocks = useCallback(() => {
+    const materials: MaterialType[] = ['wood', 'concrete', 'glass'];
+    const newBlocks: BlockData[] = [];
+
+    for (let i = 0; i < 5; i++) {
+      const material = materials[i % materials.length];
+      const props = materialProperties[material];
+      newBlocks.push({
+        id: generateId(),
+        position: [-4 + i * 2, 0.6, 2],
+        size: [1, 1.2, 1],
+        material,
+        health: props.health,
+        maxHealth: props.health,
+        rotation: [0, 0, 0],
+      });
+    }
+
+    for (let i = 0; i < 3; i++) {
+      const material = materials[(i + 1) % materials.length];
+      const props = materialProperties[material];
+      newBlocks.push({
+        id: generateId(),
+        position: [-2 + i * 2, 1.8, 4],
+        size: [1.2, 1, 1.2],
+        material,
+        health: props.health,
+        maxHealth: props.health,
+        rotation: [0, 0, 0],
+      });
+    }
+
+    addBlocks(newBlocks);
+  }, [addBlocks]);
+
+  const handleResetRoboticArm = useCallback(() => {
+    initRef.current = false;
+    resetGame();
+    useGameStore.getState().resetRoboticArm();
+    handleSpawnRoboticArmBlocks();
+    initRef.current = true;
+  }, [resetGame, handleSpawnRoboticArmBlocks]);
+
   useEffect(() => {
     if (gameMode === 'destroy' && !initRef.current) {
       initRef.current = true;
@@ -305,6 +349,14 @@ export function GameScene() {
       setBuildingGenerated(true);
     }
   }, [addBlocks, gameMode]);
+
+  useEffect(() => {
+    if (gameMode === 'roboticArm' && !initRef.current) {
+      initRef.current = true;
+      resetGame();
+      handleSpawnRoboticArmBlocks();
+    }
+  }, [gameMode, resetGame, handleSpawnRoboticArmBlocks]);
 
   useEffect(() => {
     if (gameMode === 'destroy' && buildingGenerated) {
@@ -330,8 +382,8 @@ export function GameScene() {
         gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
         dpr={[1, 2]}
       >
-        <color attach="background" args={[gameMode === 'build' ? '#1a2a1a' : '#2a2a4e']} />
-        <fog attach="fog" args={[gameMode === 'build' ? '#1a2a1a' : '#2a2a4e', 60, 120]} />
+        <color attach="background" args={[gameMode === 'build' ? '#1a2a1a' : gameMode === 'roboticArm' ? '#1a1a2e' : '#2a2a4e']} />
+        <fog attach="fog" args={[gameMode === 'build' ? '#1a2a1a' : gameMode === 'roboticArm' ? '#1a1a2e' : '#2a2a4e', 60, 120]} />
 
         {gameMode === 'build' ? <BuildSceneLighting /> : <SceneLighting />}
 
@@ -393,6 +445,33 @@ export function GameScene() {
 
         {gameMode === 'build' && <BuildMode />}
 
+        {gameMode === 'roboticArm' && <Ground gravityDirection={gravityDirection} />}
+
+        {gameMode === 'roboticArm' && blockArray.map((block) => (
+          <Block
+            key={block.id}
+            id={block.id}
+            position={block.position}
+            size={block.size}
+            material={block.material}
+            addPhysicsBody={addBody}
+            removePhysicsBody={removeBody}
+            getPhysicsBody={getBody}
+            onDestroy={handleDestroyBlock}
+            spawnDebris={handleSpawnDebris}
+          />
+        ))}
+
+        {gameMode === 'roboticArm' && (
+          <RoboticArm
+            addPhysicsBody={addBody}
+            removePhysicsBody={removeBody}
+            getPhysicsBody={getBody}
+          />
+        )}
+
+        {gameMode === 'roboticArm' && <Particles maxParticles={500} />}
+
         <SprayTool />
 
         <OrbitControls
@@ -406,7 +485,7 @@ export function GameScene() {
           makeDefault
           target={(() => {
             switch (gravityDirection) {
-              case 'down': return [0, gameMode === 'build' ? 1 : 3, 0];
+              case 'down': return [0, gameMode === 'build' ? 1 : gameMode === 'roboticArm' ? 3 : 3, 0];
               case 'up': return [0, gameMode === 'build' ? 49 : 47, 0];
               case 'left': return [-49, gameMode === 'build' ? 1 : 3, 0];
               case 'right': return [49, gameMode === 'build' ? 1 : 3, 0];
@@ -417,11 +496,11 @@ export function GameScene() {
           })()}
         />
 
-        {gameMode === 'destroy' && <PhysicsStepper step={step} />}
+        {(gameMode === 'destroy' || gameMode === 'roboticArm') && <PhysicsStepper step={step} />}
 
         <EffectComposer multisampling={8} enableNormalPass={false}>
           <Bloom
-            intensity={gameMode === 'build' ? 0.3 : 0.6}
+            intensity={gameMode === 'build' ? 0.3 : gameMode === 'roboticArm' ? 0.5 : 0.6}
             luminanceThreshold={0.6}
             luminanceSmoothing={0.9}
             mipmapBlur
@@ -431,7 +510,7 @@ export function GameScene() {
             radialModulation={false}
             modulationOffset={0}
           />
-          <Vignette eskil={false} offset={0.3} darkness={gameMode === 'build' ? 0.4 : 0.7} />
+          <Vignette eskil={false} offset={0.3} darkness={gameMode === 'build' ? 0.4 : gameMode === 'roboticArm' ? 0.5 : 0.7} />
         </EffectComposer>
       </Canvas>
 
@@ -439,6 +518,7 @@ export function GameScene() {
         onReset={handleReset}
         onRegenerateBuilding={handleRegenerateBuilding}
         onClearBuild={handleClearBuild}
+        onResetRoboticArm={handleResetRoboticArm}
       />
 
       {gameMode === 'destroy' && <AudioControlPanel />}
