@@ -405,15 +405,14 @@ export function GameScene() {
           minPolarAngle={0.1}
           makeDefault
           target={(() => {
-            if (gameMode === 'build') return [0, 1, 0];
             switch (gravityDirection) {
-              case 'down': return [0, 3, 0];
-              case 'up': return [0, 47, 0];
-              case 'left': return [-47, 3, 0];
-              case 'right': return [47, 3, 0];
-              case 'forward': return [0, 3, 47];
-              case 'backward': return [0, 3, -47];
-              default: return [0, 3, 0];
+              case 'down': return [0, gameMode === 'build' ? 1 : 3, 0];
+              case 'up': return [0, gameMode === 'build' ? 49 : 47, 0];
+              case 'left': return [-49, gameMode === 'build' ? 1 : 3, 0];
+              case 'right': return [49, gameMode === 'build' ? 1 : 3, 0];
+              case 'forward': return [0, gameMode === 'build' ? 1 : 3, 49];
+              case 'backward': return [0, gameMode === 'build' ? 1 : 3, -49];
+              default: return [0, gameMode === 'build' ? 1 : 3, 0];
             }
           })()}
         />

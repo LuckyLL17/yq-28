@@ -2,7 +2,7 @@ import { useRef, useState, useCallback, useEffect } from 'react';
 import { useFrame, useThree, ThreeEvent } from '@react-three/fiber';
 import { create } from 'zustand';
 import * as THREE from 'three';
-import { useGameStore, materialProperties, generateId, BlockData } from '@/store/gameStore';
+import { useGameStore, materialProperties, generateId, BlockData, GravityDirection } from '@/store/gameStore';
 
 const GRID_SIZE = 1;
 const GRID_HALF = 20;
@@ -11,6 +11,183 @@ const BLOCK_UNIT = BLOCK_HEIGHT * 0.95;
 const HALF_BLOCK = BLOCK_UNIT / 2;
 const ROTATION_STEP = Math.PI / 2;
 const MAX_HEIGHT_LEVEL = 30;
+
+type StackAxis = 'x' | 'y' | 'z';
+
+interface BuildGravityInfo {
+  stackAxis: StackAxis;
+  stackSign: number;
+  groundPos: number;
+  groundNormal: THREE.Vector3;
+  gridUAxis: 'x' | 'y' | 'z';
+  gridVAxis: 'x' | 'y' | 'z';
+  groundRotation: [number, number, number];
+}
+
+function getBuildGravityInfo(direction: GravityDirection): BuildGravityInfo {
+  switch (direction) {
+    case 'down':
+    default:
+      return {
+        stackAxis: 'y',
+        stackSign: 1,
+        groundPos: 0,
+        groundNormal: new THREE.Vector3(0, 1, 0),
+        gridUAxis: 'x',
+        gridVAxis: 'z',
+        groundRotation: [-Math.PI / 2, 0, 0],
+      };
+    case 'up':
+      return {
+        stackAxis: 'y',
+        stackSign: -1,
+        groundPos: 50,
+        groundNormal: new THREE.Vector3(0, -1, 0),
+        gridUAxis: 'x',
+        gridVAxis: 'z',
+        groundRotation: [Math.PI / 2, 0, 0],
+      };
+    case 'left':
+      return {
+        stackAxis: 'x',
+        stackSign: 1,
+        groundPos: -50,
+        groundNormal: new THREE.Vector3(1, 0, 0),
+        gridUAxis: 'y',
+        gridVAxis: 'z',
+        groundRotation: [0, Math.PI / 2, 0],
+      };
+    case 'right':
+      return {
+        stackAxis: 'x',
+        stackSign: -1,
+        groundPos: 50,
+        groundNormal: new THREE.Vector3(-1, 0, 0),
+        gridUAxis: 'y',
+        gridVAxis: 'z',
+        groundRotation: [0, -Math.PI / 2, 0],
+      };
+    case 'forward':
+      return {
+        stackAxis: 'z',
+        stackSign: -1,
+        groundPos: 50,
+        groundNormal: new THREE.Vector3(0, 0, -1),
+        gridUAxis: 'x',
+        gridVAxis: 'y',
+        groundRotation: [0, 0, 0],
+      };
+    case 'backward':
+      return {
+        stackAxis: 'z',
+        stackSign: 1,
+        groundPos: -50,
+        groundNormal: new THREE.Vector3(0, 0, 1),
+        gridUAxis: 'x',
+        gridVAxis: 'y',
+        groundRotation: [Math.PI, 0, 0],
+      };
+  }
+}
+
+function gridToWorld(
+  gridU: number,
+  gridV: number,
+  heightLevel: number,
+  info: BuildGravityInfo
+): [number, number, number] {
+  const stackOffset = info.groundPos + info.stackSign * (heightLevel * BLOCK_UNIT + HALF_BLOCK);
+  const result: [number, number, number] = [0, 0, 0];
+
+  result[0] = info.gridUAxis === 'x' ? gridU : info.gridVAxis === 'x' ? gridV : stackOffset;
+  result[1] = info.gridUAxis === 'y' ? gridU : info.gridVAxis === 'y' ? gridV : stackOffset;
+  result[2] = info.gridUAxis === 'z' ? gridU : info.gridVAxis === 'z' ? gridV : stackOffset;
+
+  return result;
+}
+
+function worldToGrid(
+  worldPos: THREE.Vector3 | [number, number, number],
+  info: BuildGravityInfo
+): { u: number; v: number; heightLevel: number } {
+  const pos = Array.isArray(worldPos) ? worldPos : [worldPos.x, worldPos.y, worldPos.z];
+  const uAxis = info.gridUAxis === 'x' ? 0 : info.gridUAxis === 'y' ? 1 : 2;
+  const vAxis = info.gridVAxis === 'x' ? 0 : info.gridVAxis === 'y' ? 1 : 2;
+  const sAxis = info.stackAxis === 'x' ? 0 : info.stackAxis === 'y' ? 1 : 2;
+
+  const u = pos[uAxis];
+  const v = pos[vAxis];
+  const stackVal = pos[sAxis];
+  const heightLevel = Math.max(0, Math.round(((stackVal - info.groundPos) * info.stackSign - HALF_BLOCK) / BLOCK_UNIT));
+
+  return { u, v, heightLevel };
+}
+
+function getHeightPlane(heightLevel: number, info: BuildGravityInfo): THREE.Plane {
+  const d = info.groundPos + info.stackSign * (heightLevel * BLOCK_UNIT + HALF_BLOCK);
+  const normal = info.groundNormal.clone().negate();
+  return new THREE.Plane(normal, -d);
+}
+
+function isStackNormal(normal: THREE.Vector3, info: BuildGravityInfo): boolean {
+  const sAxis = info.stackAxis;
+  const axisVal = sAxis === 'x' ? Math.abs(normal.x) : sAxis === 'y' ? Math.abs(normal.y) : Math.abs(normal.z);
+  return axisVal > 0.5;
+}
+
+function getStackDirectionSign(normal: THREE.Vector3, info: BuildGravityInfo): number {
+  const sAxis = info.stackAxis;
+  const val = sAxis === 'x' ? normal.x : sAxis === 'y' ? normal.y : normal.z;
+  return Math.sign(val);
+}
+
+function snapGridValue(val: number): number {
+  return Math.round(val / GRID_SIZE) * GRID_SIZE;
+}
+
+function getStackHeightFromGrid(
+  gridU: number,
+  gridV: number,
+  info: BuildGravityInfo,
+  excludeId?: string
+): number {
+  const blocks = useGameStore.getState().blocks;
+  let maxStackHeight = 0;
+  const sAxis = info.stackAxis;
+  const uAxis = info.gridUAxis;
+  const vAxis = info.gridVAxis;
+
+  blocks.forEach((block, id) => {
+    if (excludeId && id === excludeId) return;
+    const bPos = block.position;
+    const bSize = block.size;
+
+    const bU = uAxis === 'x' ? bPos[0] : uAxis === 'y' ? bPos[1] : bPos[2];
+    const bV = vAxis === 'x' ? bPos[0] : vAxis === 'y' ? bPos[1] : bPos[2];
+    const bS = sAxis === 'x' ? bPos[0] : sAxis === 'y' ? bPos[1] : bPos[2];
+    const bHalfS = (sAxis === 'x' ? bSize[0] : sAxis === 'y' ? bSize[1] : bSize[2]) / 2;
+    const bHalfU = (uAxis === 'x' ? bSize[0] : uAxis === 'y' ? bSize[1] : bSize[2]) / 2;
+    const bHalfV = (vAxis === 'x' ? bSize[0] : vAxis === 'y' ? bSize[1] : vAxis === 'z' ? bSize[2] : bSize[2]) / 2;
+
+    if (Math.abs(bU - gridU) < bHalfU + 0.25 && Math.abs(bV - gridV) < bHalfV + 0.25) {
+      const blockStackTop = (bS - info.groundPos) * info.stackSign + bHalfS;
+      if (blockStackTop > maxStackHeight) {
+        maxStackHeight = blockStackTop;
+      }
+    }
+  });
+
+  return maxStackHeight + HALF_BLOCK;
+}
+
+function gridToStackWorld(gridU: number, gridV: number, stackHeight: number, info: BuildGravityInfo): [number, number, number] {
+  const stackVal = info.groundPos + info.stackSign * stackHeight;
+  const result: [number, number, number] = [0, 0, 0];
+  result[0] = info.gridUAxis === 'x' ? gridU : info.gridVAxis === 'x' ? gridV : stackVal;
+  result[1] = info.gridUAxis === 'y' ? gridU : info.gridVAxis === 'y' ? gridV : stackVal;
+  result[2] = info.gridUAxis === 'z' ? gridU : info.gridVAxis === 'z' ? gridV : stackVal;
+  return result;
+}
 
 interface BuildHeightState {
   heightLevel: number;
@@ -30,6 +207,8 @@ function BuildGrid() {
   const linesRef = useRef<THREE.Group>(null);
   const buildTool = useGameStore((s) => s.buildTool);
   const heightLevel = useBuildHeightLevel((s) => s.heightLevel);
+  const gravityDirection = useGameStore((s) => s.gravityDirection);
+  const info = getBuildGravityInfo(gravityDirection);
 
   useEffect(() => {
     if (!linesRef.current) return;
@@ -41,11 +220,15 @@ function BuildGrid() {
     });
 
     for (let i = -GRID_HALF; i <= GRID_HALF; i += GRID_SIZE) {
-      const points1 = [new THREE.Vector3(i, 0.01, -GRID_HALF), new THREE.Vector3(i, 0.01, GRID_HALF)];
+      const p1a = gridToWorld(i, -GRID_HALF, 0, info);
+      const p1b = gridToWorld(i, GRID_HALF, 0, info);
+      const points1 = [new THREE.Vector3(...p1a), new THREE.Vector3(...p1b)];
       const geo1 = new THREE.BufferGeometry().setFromPoints(points1);
       group.add(new THREE.Line(geo1, material));
 
-      const points2 = [new THREE.Vector3(-GRID_HALF, 0.01, i), new THREE.Vector3(GRID_HALF, 0.01, i)];
+      const p2a = gridToWorld(-GRID_HALF, i, 0, info);
+      const p2b = gridToWorld(GRID_HALF, i, 0, info);
+      const points2 = [new THREE.Vector3(...p2a), new THREE.Vector3(...p2b)];
       const geo2 = new THREE.BufferGeometry().setFromPoints(points2);
       group.add(new THREE.Line(geo2, material));
     }
@@ -59,15 +242,21 @@ function BuildGrid() {
         group.remove(child);
       }
     };
-  }, []);
+  }, [gravityDirection, info]);
 
-  const levelY = heightLevel * BLOCK_UNIT + 0.01;
+  const levelPos = gridToWorld(0, 0, heightLevel, info);
+  const gridOffset = info.groundNormal.clone().multiplyScalar(-0.01);
+  const adjustedLevelPos: [number, number, number] = [
+    levelPos[0] + gridOffset.x,
+    levelPos[1] + gridOffset.y,
+    levelPos[2] + gridOffset.z,
+  ];
 
   return (
     <>
       <group ref={linesRef} />
       {(buildTool === 'place' || buildTool === 'move') && heightLevel > 0 && (
-        <group position={[0, levelY, 0]}>
+        <group position={adjustedLevelPos} rotation={info.groundRotation}>
           <gridHelper args={[GRID_HALF * 2, GRID_HALF * 2, 0x4a5568, 0x4a5568]} />
         </group>
       )}
@@ -79,12 +268,14 @@ function GhostBlock() {
   const buildMaterial = useGameStore((s) => s.buildMaterial);
   const buildTool = useGameStore((s) => s.buildTool);
   const heightLevel = useBuildHeightLevel((s) => s.heightLevel);
+  const gravityDirection = useGameStore((s) => s.gravityDirection);
   const [ghostPos, setGhostPos] = useState<[number, number, number] | null>(null);
   const [isColliding, setIsColliding] = useState(false);
   const { camera, raycaster, pointer, scene } = useThree();
   const intersectionPoint = useRef(new THREE.Vector3());
   const lastPointer = useRef({ x: 0, y: 0 });
   const lastHeight = useRef(0);
+  const lastGravity = useRef<GravityDirection>('down');
   const heightPlane = useRef(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0));
 
   useFrame(() => {
@@ -94,14 +285,18 @@ function GhostBlock() {
       return;
     }
 
+    const info = getBuildGravityInfo(gravityDirection);
+
     const pointerMoved = Math.abs(pointer.x - lastPointer.current.x) > 0.001 || Math.abs(pointer.y - lastPointer.current.y) > 0.001;
     const heightChanged = heightLevel !== lastHeight.current;
+    const gravityChanged = gravityDirection !== lastGravity.current;
 
-    if (!pointerMoved && !heightChanged) {
+    if (!pointerMoved && !heightChanged && !gravityChanged) {
       return;
     }
     lastPointer.current = { x: pointer.x, y: pointer.y };
     lastHeight.current = heightLevel;
+    lastGravity.current = gravityDirection;
 
     raycaster.setFromCamera(pointer, camera);
 
@@ -127,32 +322,51 @@ function GhostBlock() {
     let newPos: [number, number, number] | null = null;
 
     if (hitPoint && hitFaceNormal) {
-      const snappedX = Math.round(hitPoint.x / GRID_SIZE) * GRID_SIZE;
-      const snappedZ = Math.round(hitPoint.z / GRID_SIZE) * GRID_SIZE;
+      const gridPos = worldToGrid(hitPoint, info);
+      const snappedU = snapGridValue(gridPos.u);
+      const snappedV = snapGridValue(gridPos.v);
 
-      if (Math.abs(hitFaceNormal.y) > 0.5) {
-        if (hitFaceNormal.y > 0) {
-          const stackY = findStackHeight(snappedX, snappedZ);
-          newPos = [snappedX, stackY, snappedZ];
+      if (isStackNormal(hitFaceNormal, info)) {
+        const dirSign = getStackDirectionSign(hitFaceNormal, info);
+        if (dirSign * info.stackSign > 0) {
+          const stackHeight = getStackHeightFromGrid(snappedU, snappedV, info);
+          newPos = gridToStackWorld(snappedU, snappedV, stackHeight, info);
         } else {
-          const belowY = Math.floor(hitPoint.y / BLOCK_UNIT) * BLOCK_UNIT + HALF_BLOCK;
-          newPos = [snappedX, Math.max(HALF_BLOCK, belowY - BLOCK_UNIT), snappedZ];
+          const currentStackHeight = gridPos.heightLevel * BLOCK_UNIT + HALF_BLOCK;
+          const belowStackHeight = Math.max(HALF_BLOCK, currentStackHeight - BLOCK_UNIT);
+          newPos = gridToStackWorld(snappedU, snappedV, belowStackHeight, info);
         }
       } else {
-        const offsetX = hitFaceNormal.x > 0 ? GRID_SIZE : hitFaceNormal.x < 0 ? -GRID_SIZE : 0;
-        const offsetZ = hitFaceNormal.z > 0 ? GRID_SIZE : hitFaceNormal.z < 0 ? -GRID_SIZE : 0;
-        const targetX = snappedX + offsetX;
-        const targetZ = snappedZ + offsetZ;
-        const stackY = findStackHeight(targetX, targetZ);
-        newPos = [targetX, stackY, targetZ];
+        const uAxis = info.gridUAxis === 'x' ? 0 : info.gridUAxis === 'y' ? 1 : 2;
+        const vAxis = info.gridVAxis === 'x' ? 0 : info.gridVAxis === 'y' ? 1 : 2;
+
+        const normalU = (uAxis === 0 ? hitFaceNormal.x : uAxis === 1 ? hitFaceNormal.y : hitFaceNormal.z);
+        const normalV = (vAxis === 0 ? hitFaceNormal.x : vAxis === 1 ? hitFaceNormal.y : hitFaceNormal.z);
+
+        const offsetU = Math.abs(normalU) > 0.5 ? Math.sign(normalU) * GRID_SIZE : 0;
+        const offsetV = Math.abs(normalV) > 0.5 ? Math.sign(normalV) * GRID_SIZE : 0;
+
+        const targetU = snappedU + offsetU;
+        const targetV = snappedV + offsetV;
+        const stackHeight = getStackHeightFromGrid(targetU, targetV, info);
+        newPos = gridToStackWorld(targetU, targetV, stackHeight, info);
       }
     } else {
-      heightPlane.current.set(new THREE.Vector3(0, 1, 0), -(heightLevel * BLOCK_UNIT + HALF_BLOCK));
+      heightPlane.current = getHeightPlane(heightLevel, info);
       if (raycaster.ray.intersectPlane(heightPlane.current, intersectionPoint.current)) {
-        const snappedX = Math.round(intersectionPoint.current.x / GRID_SIZE) * GRID_SIZE;
-        const snappedZ = Math.round(intersectionPoint.current.z / GRID_SIZE) * GRID_SIZE;
-        const snappedY = heightLevel * BLOCK_UNIT + HALF_BLOCK;
-        newPos = [snappedX, snappedY, snappedZ];
+        const gridPos = worldToGrid(intersectionPoint.current, info);
+        const snappedU = snapGridValue(gridPos.u);
+        const snappedV = snapGridValue(gridPos.v);
+        const gridStackHeight = heightLevel * BLOCK_UNIT + HALF_BLOCK;
+        const worldPos = gridToStackWorld(snappedU, snappedV, gridStackHeight, info);
+
+        const actualStackHeight = getStackHeightFromGrid(snappedU, snappedV, info);
+        const finalStackHeight = heightLevel > 0
+          ? Math.max(actualStackHeight, heightLevel * BLOCK_UNIT + HALF_BLOCK)
+          : actualStackHeight;
+
+        newPos = gridToStackWorld(snappedU, snappedV, finalStackHeight, info);
+        void worldPos;
       }
     }
 
@@ -194,28 +408,6 @@ function GhostBlock() {
   );
 }
 
-function findStackHeight(x: number, z: number, excludeId?: string): number {
-  const blocks = useGameStore.getState().blocks;
-  let maxTop = 0;
-
-  blocks.forEach((block, id) => {
-    if (excludeId && id === excludeId) return;
-    const [bx, by, bz] = block.position;
-    const halfW = block.size[0] / 2;
-    const halfH = block.size[1] / 2;
-    const halfD = block.size[2] / 2;
-
-    if (Math.abs(bx - x) < halfW + 0.25 && Math.abs(bz - z) < halfD + 0.25) {
-      const blockTop = by + halfH;
-      if (blockTop > maxTop) {
-        maxTop = blockTop;
-      }
-    }
-  });
-
-  return maxTop + HALF_BLOCK;
-}
-
 function checkCollision(position: [number, number, number], size: [number, number, number], excludeId?: string): boolean {
   const blocks = useGameStore.getState().blocks;
   const [px, py, pz] = position;
@@ -252,6 +444,7 @@ function BuildBlock({ block, isSelected }: { block: BlockData; isSelected: boole
   const outlineRef = useRef<THREE.LineSegments>(null);
   const buildTool = useGameStore((s) => s.buildTool);
   const buildMaterial = useGameStore((s) => s.buildMaterial);
+  const gravityDirection = useGameStore((s) => s.gravityDirection);
   const setSelectedBlockId = useGameStore((s) => s.setSelectedBlockId);
   const addBlock = useGameStore((s) => s.addBlock);
   const pushUndoAction = useGameStore((s) => s.pushUndoAction);
@@ -264,8 +457,8 @@ function BuildBlock({ block, isSelected }: { block: BlockData; isSelected: boole
   const movePlaneRef = useRef(new THREE.Plane(new THREE.Vector3(0, 1, 0), -block.position[1]));
   const lastPointer = useRef({ x: 0, y: 0 });
   const lastHeightLevel = useRef(0);
-  const dragBaseX = useRef(0);
-  const dragBaseZ = useRef(0);
+  const dragBaseU = useRef(0);
+  const dragBaseV = useRef(0);
   const { camera, raycaster, pointer } = useThree();
   const intersectionPoint = useRef(new THREE.Vector3());
   const updateBlockPosition = useGameStore((s) => s.updateBlockPosition);
@@ -331,10 +524,12 @@ function BuildBlock({ block, isSelected }: { block: BlockData; isSelected: boole
   });
 
   const placeOnTop = useCallback(() => {
-    const [bx, by, bz] = block.position;
-    const halfH = block.size[1] / 2;
-    const newY = by + halfH + HALF_BLOCK;
-    const newPos: [number, number, number] = [bx, newY, bz];
+    const info = getBuildGravityInfo(gravityDirection);
+    const gridPos = worldToGrid(block.position, info);
+    const snappedU = snapGridValue(gridPos.u);
+    const snappedV = snapGridValue(gridPos.v);
+    const stackHeight = getStackHeightFromGrid(snappedU, snappedV, info);
+    const newPos = gridToStackWorld(snappedU, snappedV, stackHeight, info);
     if (checkCollision(newPos, [BLOCK_UNIT, BLOCK_UNIT, BLOCK_UNIT])) return;
     const props = materialProperties[buildMaterial];
     const newBlock: BlockData = {
@@ -348,7 +543,7 @@ function BuildBlock({ block, isSelected }: { block: BlockData; isSelected: boole
     };
     addBlock(newBlock);
     pushUndoAction({ type: 'add', block: { ...newBlock } });
-  }, [block.position, block.size, buildMaterial, addBlock, pushUndoAction]);
+  }, [block.position, block.size, buildMaterial, addBlock, pushUndoAction, gravityDirection]);
 
   const handleClick = useCallback((e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
@@ -357,30 +552,38 @@ function BuildBlock({ block, isSelected }: { block: BlockData; isSelected: boole
       if (hit?.face?.normal) {
         const normal = hit.face.normal.clone();
         normal.transformDirection(hit.object.matrixWorld);
-        const [bx, by, bz] = block.position;
+        const info = getBuildGravityInfo(gravityDirection);
+        const gridPos = worldToGrid(block.position, info);
+        const snappedU = snapGridValue(gridPos.u);
+        const snappedV = snapGridValue(gridPos.v);
         const props = materialProperties[buildMaterial];
 
-        let placeX = bx;
-        let placeY = by;
-        let placeZ = bz;
+        let placePos: [number, number, number] | null = null;
 
-        if (normal.y > 0.5) {
-          placeY = findStackHeight(bx, bz);
-        } else if (normal.y < -0.5) {
-          const stackBelow = findStackHeight(bx, bz, block.id);
-          const belowY = stackBelow - BLOCK_UNIT;
-          placeY = Math.max(HALF_BLOCK, belowY);
-        } else {
-          if (Math.abs(normal.x) > Math.abs(normal.z)) {
-            placeX = bx + Math.sign(normal.x) * GRID_SIZE;
+        if (isStackNormal(normal, info)) {
+          const dirSign = getStackDirectionSign(normal, info);
+          if (dirSign * info.stackSign > 0) {
+            const stackHeight = getStackHeightFromGrid(snappedU, snappedV, info);
+            placePos = gridToStackWorld(snappedU, snappedV, stackHeight, info);
           } else {
-            placeZ = bz + Math.sign(normal.z) * GRID_SIZE;
+            const stackBelow = getStackHeightFromGrid(snappedU, snappedV, info, block.id);
+            const belowStackHeight = Math.max(HALF_BLOCK, stackBelow - BLOCK_UNIT);
+            placePos = gridToStackWorld(snappedU, snappedV, belowStackHeight, info);
           }
-          placeY = findStackHeight(placeX, placeZ);
+        } else {
+          const uAxis = info.gridUAxis === 'x' ? 0 : info.gridUAxis === 'y' ? 1 : 2;
+          const vAxis = info.gridVAxis === 'x' ? 0 : info.gridVAxis === 'y' ? 1 : 2;
+          const normalU = (uAxis === 0 ? normal.x : uAxis === 1 ? normal.y : normal.z);
+          const normalV = (vAxis === 0 ? normal.x : vAxis === 1 ? normal.y : normal.z);
+          const offsetU = Math.abs(normalU) > 0.5 ? Math.sign(normalU) * GRID_SIZE : 0;
+          const offsetV = Math.abs(normalV) > 0.5 ? Math.sign(normalV) * GRID_SIZE : 0;
+          const targetU = snappedU + offsetU;
+          const targetV = snappedV + offsetV;
+          const stackHeight = getStackHeightFromGrid(targetU, targetV, info);
+          placePos = gridToStackWorld(targetU, targetV, stackHeight, info);
         }
 
-        const placePos: [number, number, number] = [placeX, placeY, placeZ];
-        if (checkCollision(placePos, [BLOCK_UNIT, BLOCK_UNIT, BLOCK_UNIT])) return;
+        if (!placePos || checkCollision(placePos, [BLOCK_UNIT, BLOCK_UNIT, BLOCK_UNIT])) return;
 
         const newBlock: BlockData = {
           id: generateId(),
@@ -412,7 +615,7 @@ function BuildBlock({ block, isSelected }: { block: BlockData; isSelected: boole
       return;
     }
     setSelectedBlockId(block.id);
-  }, [block.id, block.position, block.size, buildTool, buildMaterial, isSelected, setSelectedBlockId, pushUndoAction, addBlock, placeOnTop]);
+  }, [block.id, block.position, block.size, buildTool, buildMaterial, isSelected, setSelectedBlockId, pushUndoAction, addBlock, placeOnTop, gravityDirection]);
 
   const setHeightLevel = useBuildHeightLevel((s) => s.setHeightLevel);
 
@@ -421,15 +624,16 @@ function BuildBlock({ block, isSelected }: { block: BlockData; isSelected: boole
     e.stopPropagation();
     isDragMoving.current = true;
     dragStart.current = [...block.position] as [number, number, number];
-    const currentBlockLevel = Math.max(0, Math.round((block.position[1] - HALF_BLOCK) / BLOCK_UNIT));
+    const info = getBuildGravityInfo(gravityDirection);
+    const gridPos = worldToGrid(block.position, info);
+    const currentBlockLevel = Math.max(0, gridPos.heightLevel);
     setHeightLevel(currentBlockLevel);
-    const planeY = currentBlockLevel * BLOCK_UNIT + HALF_BLOCK;
-    movePlaneRef.current.set(new THREE.Vector3(0, 1, 0), -planeY);
+    movePlaneRef.current = getHeightPlane(currentBlockLevel, info);
     lastPointer.current = { x: pointer.x, y: pointer.y };
     lastHeightLevel.current = currentBlockLevel;
-    dragBaseX.current = block.position[0];
-    dragBaseZ.current = block.position[2];
-  }, [buildTool, isSelected, block.position, setHeightLevel, pointer]);
+    dragBaseU.current = snapGridValue(gridPos.u);
+    dragBaseV.current = snapGridValue(gridPos.v);
+  }, [buildTool, isSelected, block.position, setHeightLevel, pointer, gravityDirection]);
 
   const handlePointerUp = useCallback(() => {
     if (!isDragMoving.current || !dragStart.current) return;
@@ -449,34 +653,41 @@ function BuildBlock({ block, isSelected }: { block: BlockData; isSelected: boole
 
   useFrame(() => {
     if (isDragMoving.current && buildTool === 'move' && isSelected) {
+      const info = getBuildGravityInfo(gravityDirection);
       const pointerMoved = Math.abs(pointer.x - lastPointer.current.x) > 0.001 || Math.abs(pointer.y - lastPointer.current.y) > 0.001;
       const heightChanged = heightLevel !== lastHeightLevel.current;
 
       if (pointerMoved) {
         raycaster.setFromCamera(pointer, camera);
         const ray = raycaster.ray;
-        const planeY = heightLevel * BLOCK_UNIT + HALF_BLOCK;
-        movePlaneRef.current.set(new THREE.Vector3(0, 1, 0), -planeY);
+        movePlaneRef.current = getHeightPlane(heightLevel, info);
         if (ray.intersectPlane(movePlaneRef.current, intersectionPoint.current)) {
-          const snappedX = Math.round(intersectionPoint.current.x / GRID_SIZE) * GRID_SIZE;
-          const snappedZ = Math.round(intersectionPoint.current.z / GRID_SIZE) * GRID_SIZE;
-          const snappedY = heightLevel * BLOCK_UNIT + HALF_BLOCK;
-          if (snappedX !== block.position[0] || Math.abs(snappedY - block.position[1]) > 0.001 || snappedZ !== block.position[2]) {
-            if (!checkCollision([snappedX, snappedY, snappedZ], [BLOCK_UNIT, BLOCK_UNIT, BLOCK_UNIT], block.id)) {
-              updateBlockPosition(block.id, [snappedX, snappedY, snappedZ]);
-              dragBaseX.current = snappedX;
-              dragBaseZ.current = snappedZ;
+          const gridPos = worldToGrid(intersectionPoint.current, info);
+          const snappedU = snapGridValue(gridPos.u);
+          const snappedV = snapGridValue(gridPos.v);
+          const newPos = gridToStackWorld(snappedU, snappedV, heightLevel * BLOCK_UNIT + HALF_BLOCK, info);
+          if (
+            newPos[0] !== block.position[0] ||
+            Math.abs(newPos[1] - block.position[1]) > 0.001 ||
+            newPos[2] !== block.position[2]
+          ) {
+            if (!checkCollision(newPos, [BLOCK_UNIT, BLOCK_UNIT, BLOCK_UNIT], block.id)) {
+              updateBlockPosition(block.id, newPos);
+              dragBaseU.current = snappedU;
+              dragBaseV.current = snappedV;
             }
           }
         }
         lastPointer.current = { x: pointer.x, y: pointer.y };
       } else if (heightChanged) {
-        const snappedY = heightLevel * BLOCK_UNIT + HALF_BLOCK;
-        const newX = dragBaseX.current;
-        const newZ = dragBaseZ.current;
-        if (Math.abs(snappedY - block.position[1]) > 0.001 || newX !== block.position[0] || newZ !== block.position[2]) {
-          if (!checkCollision([newX, snappedY, newZ], [BLOCK_UNIT, BLOCK_UNIT, BLOCK_UNIT], block.id)) {
-            updateBlockPosition(block.id, [newX, snappedY, newZ]);
+        const newPos = gridToStackWorld(dragBaseU.current, dragBaseV.current, heightLevel * BLOCK_UNIT + HALF_BLOCK, info);
+        if (
+          Math.abs(newPos[1] - block.position[1]) > 0.001 ||
+          newPos[0] !== block.position[0] ||
+          newPos[2] !== block.position[2]
+        ) {
+          if (!checkCollision(newPos, [BLOCK_UNIT, BLOCK_UNIT, BLOCK_UNIT], block.id)) {
+            updateBlockPosition(block.id, newPos);
           }
         }
       }
@@ -541,29 +752,29 @@ function PlacementHandler() {
   const addBlock = useGameStore((s) => s.addBlock);
   const pushUndoAction = useGameStore((s) => s.pushUndoAction);
   const heightLevel = useBuildHeightLevel((s) => s.heightLevel);
+  const gravityDirection = useGameStore((s) => s.gravityDirection);
   const { camera, raycaster, pointer } = useThree();
-  const groundPlane = useRef(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0));
   const intersectionPoint = useRef(new THREE.Vector3());
 
   const handleGroundClick = useCallback((e: ThreeEvent<MouseEvent>) => {
     if (buildTool !== 'place') return;
     e.stopPropagation();
 
+    const info = getBuildGravityInfo(gravityDirection);
     raycaster.setFromCamera(pointer, camera);
     const ray = raycaster.ray;
 
-    if (heightLevel === 0) {
-      groundPlane.current.set(new THREE.Vector3(0, 1, 0), 0);
-    } else {
-      groundPlane.current.set(new THREE.Vector3(0, 1, 0), -(heightLevel * BLOCK_UNIT + HALF_BLOCK));
-    }
+    const plane = getHeightPlane(heightLevel, info);
 
-    if (ray.intersectPlane(groundPlane.current, intersectionPoint.current)) {
-      const snappedX = Math.round(intersectionPoint.current.x / GRID_SIZE) * GRID_SIZE;
-      const snappedZ = Math.round(intersectionPoint.current.z / GRID_SIZE) * GRID_SIZE;
-      const snappedY = findStackHeight(snappedX, snappedZ);
-      const finalY = heightLevel > 0 ? Math.max(snappedY, heightLevel * BLOCK_UNIT + HALF_BLOCK) : snappedY;
-      const finalPos: [number, number, number] = [snappedX, finalY, snappedZ];
+    if (ray.intersectPlane(plane, intersectionPoint.current)) {
+      const gridPos = worldToGrid(intersectionPoint.current, info);
+      const snappedU = snapGridValue(gridPos.u);
+      const snappedV = snapGridValue(gridPos.v);
+      const actualStackHeight = getStackHeightFromGrid(snappedU, snappedV, info);
+      const finalStackHeight = heightLevel > 0
+        ? Math.max(actualStackHeight, heightLevel * BLOCK_UNIT + HALF_BLOCK)
+        : actualStackHeight;
+      const finalPos = gridToStackWorld(snappedU, snappedV, finalStackHeight, info);
 
       if (checkCollision(finalPos, [BLOCK_UNIT, BLOCK_UNIT, BLOCK_UNIT])) return;
 
@@ -581,12 +792,21 @@ function PlacementHandler() {
       addBlock(placedBlock);
       pushUndoAction({ type: 'add', block: { ...placedBlock } });
     }
-  }, [buildTool, buildMaterial, addBlock, pushUndoAction, camera, raycaster, pointer, heightLevel]);
+  }, [buildTool, buildMaterial, addBlock, pushUndoAction, camera, raycaster, pointer, heightLevel, gravityDirection]);
+
+  const info = getBuildGravityInfo(gravityDirection);
+  const groundPos = gridToWorld(0, 0, 0, info);
+  const clickOffset = info.groundNormal.clone().multiplyScalar(-0.1);
+  const clickPos: [number, number, number] = [
+    groundPos[0] + clickOffset.x,
+    groundPos[1] + clickOffset.y,
+    groundPos[2] + clickOffset.z,
+  ];
 
   return (
     <mesh
-      rotation={[-Math.PI / 2, 0, 0]}
-      position={[0, 0.1, 0]}
+      rotation={info.groundRotation}
+      position={clickPos}
       onClick={handleGroundClick}
     >
       <planeGeometry args={[GRID_HALF * 2, GRID_HALF * 2]} />
@@ -599,6 +819,7 @@ function KeyboardHandler() {
   const selectedBlockId = useGameStore((s) => s.selectedBlockId);
   const blocks = useGameStore((s) => s.blocks);
   const buildTool = useGameStore((s) => s.buildTool);
+  const gravityDirection = useGameStore((s) => s.gravityDirection);
   const updateBlockRotation = useGameStore((s) => s.updateBlockRotation);
   const pushUndoAction = useGameStore((s) => s.pushUndoAction);
   const undo = useGameStore((s) => s.undo);
@@ -654,40 +875,44 @@ function KeyboardHandler() {
       }
 
       if (buildTool === 'move') {
-        const [px, py, pz] = block.position;
+        const info = getBuildGravityInfo(gravityDirection);
+        const gridPos = worldToGrid(block.position, info);
         const fromPos = [...block.position] as [number, number, number];
         let moved = false;
-        let toPos: [number, number, number] = [px, py, pz];
+        let newU = gridPos.u;
+        let newV = gridPos.v;
+        let newHeight = gridPos.heightLevel;
 
         if (e.key === 'ArrowUp') {
           e.preventDefault();
-          toPos = [px, py, pz - GRID_SIZE];
+          newV -= GRID_SIZE;
           moved = true;
         } else if (e.key === 'ArrowDown') {
           e.preventDefault();
-          toPos = [px, py, pz + GRID_SIZE];
+          newV += GRID_SIZE;
           moved = true;
         } else if (e.key === 'ArrowLeft') {
           e.preventDefault();
-          toPos = [px - GRID_SIZE, py, pz];
+          newU -= GRID_SIZE;
           moved = true;
         } else if (e.key === 'ArrowRight') {
           e.preventDefault();
-          toPos = [px + GRID_SIZE, py, pz];
+          newU += GRID_SIZE;
           moved = true;
         } else if (e.key === 'PageUp') {
           e.preventDefault();
-          toPos = [px, py + BLOCK_UNIT, pz];
+          newHeight = Math.min(MAX_HEIGHT_LEVEL, newHeight + 1);
           moved = true;
         } else if (e.key === 'PageDown') {
           e.preventDefault();
-          toPos = [px, Math.max(HALF_BLOCK, py - BLOCK_UNIT), pz];
+          newHeight = Math.max(0, newHeight - 1);
           moved = true;
         }
 
         if (moved) {
-          toPos[0] = Math.max(-GRID_HALF, Math.min(GRID_HALF, toPos[0]));
-          toPos[2] = Math.max(-GRID_HALF, Math.min(GRID_HALF, toPos[2]));
+          newU = Math.max(-GRID_HALF, Math.min(GRID_HALF, newU));
+          newV = Math.max(-GRID_HALF, Math.min(GRID_HALF, newV));
+          const toPos = gridToStackWorld(newU, newV, newHeight * BLOCK_UNIT + HALF_BLOCK, info);
           if (!checkCollision(toPos, block.size, selectedBlockId)) {
             updateBlockPosition(selectedBlockId, toPos);
             pushUndoAction({ type: 'move', blockId: selectedBlockId, fromPosition: fromPos, toPosition: toPos });
@@ -712,19 +937,29 @@ function KeyboardHandler() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedBlockId, blocks, buildTool, updateBlockRotation, pushUndoAction, undo, redo, removeBlock, setSelectedBlockId, updateBlockPosition, incHeight, decHeight, setHeightLevel]);
+  }, [selectedBlockId, blocks, buildTool, gravityDirection, updateBlockRotation, pushUndoAction, undo, redo, removeBlock, setSelectedBlockId, updateBlockPosition, incHeight, decHeight, setHeightLevel]);
 
   return null;
 }
 
 function BuildGround() {
+  const gravityDirection = useGameStore((s) => s.gravityDirection);
+  const info = getBuildGravityInfo(gravityDirection);
+  const groundPos = gridToWorld(0, 0, 0, info);
+  const circleOffset = info.groundNormal.clone().multiplyScalar(-0.005).toArray() as [number, number, number];
+  const circlePos: [number, number, number] = [
+    groundPos[0] + circleOffset[0],
+    groundPos[1] + circleOffset[1],
+    groundPos[2] + circleOffset[2],
+  ];
+
   return (
     <>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
+      <mesh rotation={info.groundRotation} position={groundPos} receiveShadow>
         <planeGeometry args={[GRID_HALF * 2, GRID_HALF * 2]} />
         <meshStandardMaterial color="#2a3a2a" roughness={0.9} metalness={0.1} />
       </mesh>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.005, 0]}>
+      <mesh rotation={info.groundRotation} position={circlePos}>
         <circleGeometry args={[GRID_HALF * 0.8, 64]} />
         <meshStandardMaterial color="#3a4a3a" roughness={0.8} metalness={0.1} />
       </mesh>
@@ -767,11 +1002,15 @@ export function BuildMode() {
 function HeightLevelIndicator() {
   const heightLevel = useBuildHeightLevel((s) => s.heightLevel);
   const buildTool = useGameStore((s) => s.buildTool);
+  const gravityDirection = useGameStore((s) => s.gravityDirection);
 
   if (buildTool !== 'place' && buildTool !== 'move') return null;
 
+  const info = getBuildGravityInfo(gravityDirection);
+  const pos = gridToWorld(-GRID_HALF + 1, -GRID_HALF + 1, heightLevel, info);
+
   return (
-    <group position={[-GRID_HALF + 1, heightLevel * BLOCK_UNIT + HALF_BLOCK, -GRID_HALF + 1]}>
+    <group position={pos}>
       <mesh>
         <sphereGeometry args={[0.2, 16, 16]} />
         <meshStandardMaterial

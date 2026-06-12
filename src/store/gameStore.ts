@@ -374,6 +374,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       particles: new Map(),
       explosions: new Map(),
       wreckingBallActive: false,
+      gravityDirection: 'down',
     });
   },
   world: null,
