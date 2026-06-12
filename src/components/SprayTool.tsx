@@ -64,8 +64,8 @@ export function SprayTool() {
     raycaster.setFromCamera(pointer, camera);
     const blockMeshes: THREE.Mesh[] = [];
     scene.traverse((obj) => {
-      if (obj instanceof THREE.Mesh && (obj.userData?.isBuildBlock || obj.parent?.type === 'Group')) {
-        if (obj.geometry instanceof THREE.BoxGeometry) {
+      if (obj instanceof THREE.Mesh && obj.geometry instanceof THREE.BoxGeometry) {
+        if (obj.userData?.blockId || obj.userData?.isBuildBlock) {
           blockMeshes.push(obj);
         }
       }
@@ -82,29 +82,36 @@ export function SprayTool() {
     hitPointRef.current.copy(hit.point);
 
     let blockId: string | null = null;
-    let currentObj: THREE.Object3D | null = hit.object;
-    while (currentObj) {
-      if (currentObj.userData?.blockId) {
-        blockId = currentObj.userData.blockId;
-        break;
+
+    if (hit.object.userData?.blockId) {
+      blockId = hit.object.userData.blockId;
+    }
+
+    if (!blockId) {
+      let currentObj: THREE.Object3D | null = hit.object;
+      while (currentObj) {
+        if (currentObj.userData?.blockId) {
+          blockId = currentObj.userData.blockId;
+          break;
+        }
+        if (currentObj.userData?.isBuildBlock && currentObj.userData?.blockId) {
+          blockId = currentObj.userData.blockId;
+          break;
+        }
+        currentObj = currentObj.parent;
       }
-      if (currentObj.userData?.isBuildBlock && currentObj.userData?.blockId) {
-        blockId = currentObj.userData.blockId;
-        break;
-      }
-      currentObj = currentObj.parent;
     }
 
     if (!blockId) {
       const blocks = useGameStore.getState().blocks;
-      for (const [id, blockData] of blocks.entries()) {
+      for (const [bid, blockData] of blocks.entries()) {
         const [bx, by, bz] = blockData.position;
         const [sx, sy, sz] = blockData.size;
         const dx = Math.abs(hit.point.x - bx);
         const dy = Math.abs(hit.point.y - by);
         const dz = Math.abs(hit.point.z - bz);
         if (dx <= sx / 2 + 0.01 && dy <= sy / 2 + 0.01 && dz <= sz / 2 + 0.01) {
-          blockId = id;
+          blockId = bid;
           break;
         }
       }
@@ -251,7 +258,9 @@ export function SprayTool() {
       const blockMeshes: THREE.Mesh[] = [];
       scene.traverse((obj) => {
         if (obj instanceof THREE.Mesh && obj.geometry instanceof THREE.BoxGeometry) {
-          blockMeshes.push(obj);
+          if (obj.userData?.blockId || obj.userData?.isBuildBlock) {
+            blockMeshes.push(obj);
+          }
         }
       });
 

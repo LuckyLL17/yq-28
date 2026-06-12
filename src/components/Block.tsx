@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useMemo } from 'react';
+import { useRef, useEffect, useState, useMemo, useCallback } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
@@ -66,6 +66,8 @@ export function Block({
   const audioDamageAccum = useRef(0);
   const collapseCooldown = useRef(0);
 
+  const hasSprayTexture = useRef(false);
+
   const updateBlockTexture = useCallback(() => {
     if (!baseCanvasRef.current || !textureRef.current) return;
     const baseCtx = baseCanvasRef.current.getContext('2d');
@@ -81,6 +83,7 @@ export function Block({
     const sprayCanvas = getBlockSprayCanvas(id);
     if (sprayCanvas) {
       baseCtx.drawImage(sprayCanvas, 0, 0, w, h);
+      hasSprayTexture.current = true;
     }
     textureRef.current.needsUpdate = true;
   }, [id, material, getBlockSprayCanvas]);
@@ -308,7 +311,7 @@ export function Block({
           }
           case 'pulse': {
             const baseHue = new THREE.Color(properties.color).getHSL({ h: 0, s: 0, l: 0 }).h;
-            const hue = (baseHue + beatDetected ? 0.05 : 0) % 1;
+            const hue = (baseHue + (beatDetected ? 0.05 : 0)) % 1;
             audioColorRef.current = hslToThreeColor(hue, 0.7, 0.3 + freqBand * 0.4);
             break;
           }
@@ -319,9 +322,14 @@ export function Block({
           }
         }
 
-        materialRef.current.color.copy(audioColorRef.current);
-        materialRef.current.emissive.copy(audioColorRef.current);
-        materialRef.current.emissiveIntensity = emissiveIntensity;
+        if (hasSprayTexture.current) {
+          materialRef.current.emissive.copy(audioColorRef.current);
+          materialRef.current.emissiveIntensity = emissiveIntensity;
+        } else {
+          materialRef.current.color.copy(audioColorRef.current);
+          materialRef.current.emissive.copy(audioColorRef.current);
+          materialRef.current.emissiveIntensity = emissiveIntensity;
+        }
       } else {
         if (damageFlash.current > 0) {
           damageFlash.current -= delta;
@@ -418,6 +426,7 @@ export function Block({
         receiveShadow
         visible={!destroyed || opacity > 0}
         scale={currentScale}
+        userData={{ blockId: id, blockMaterial: material, blockSize: size }}
       >
         <boxGeometry args={size} />
         <meshStandardMaterial

@@ -266,6 +266,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   removeBlock: (id) => {
     const blocks = new Map(get().blocks);
     blocks.delete(id);
+    blockSprayCanvases.delete(id);
+    blockSprayPoints.delete(id);
     set({ blocks });
   },
   damageBlock: (id, damage) => {
@@ -275,6 +277,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       const newHealth = block.health - damage;
       if (newHealth <= 0) {
         blocks.delete(id);
+        blockSprayCanvases.delete(id);
+        blockSprayPoints.delete(id);
         set({ blocks });
         return true;
       }
@@ -339,12 +343,16 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
   wreckingBallActive: false,
   setWreckingBallActive: (active) => set({ wreckingBallActive: active }),
-  resetGame: () => set({
-    blocks: new Map(),
-    particles: new Map(),
-    explosions: new Map(),
-    wreckingBallActive: false,
-  }),
+  resetGame: () => {
+    blockSprayCanvases.clear();
+    blockSprayPoints.clear();
+    set({
+      blocks: new Map(),
+      particles: new Map(),
+      explosions: new Map(),
+      wreckingBallActive: false,
+    });
+  },
   world: null,
   setWorld: (world) => set({ world }),
   shootCooldown: false,
@@ -454,12 +462,16 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     set({ blocks, undoStack: newUndoStack, redoStack: newRedoStack, selectedBlockId: null });
   },
-  clearBuildState: () => set({
-    blocks: new Map(),
-    undoStack: [],
-    redoStack: [],
-    selectedBlockId: null,
-  }),
+  clearBuildState: () => {
+    blockSprayCanvases.clear();
+    blockSprayPoints.clear();
+    set({
+      blocks: new Map(),
+      undoStack: [],
+      redoStack: [],
+      selectedBlockId: null,
+    });
+  },
 }));
 
 export { generateId };
