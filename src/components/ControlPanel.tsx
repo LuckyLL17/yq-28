@@ -256,6 +256,40 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild }: Co
                 </div>
               </button>
             </div>
+
+            <div className="mt-4 pt-4 border-t border-white/10">
+              <div className="text-white/70 text-xs mb-3 font-medium uppercase tracking-wider flex items-center gap-2">
+                <span>重力方向</span>
+                <span className="text-xs font-normal text-white/50">
+                  {GRAVITY_LABELS[gravityDirection]}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {gravityConfigs.map((config) => {
+                  const Icon = config.icon;
+                  const isActive = gravityDirection === config.type;
+                  return (
+                    <button
+                      key={config.type}
+                      onClick={() => setGravityDirection(config.type)}
+                      className={`relative group p-2.5 rounded-xl transition-all duration-300 border ${
+                        isActive
+                          ? `bg-gradient-to-br ${config.color} border-white/30 shadow-lg scale-105`
+                          : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                      }`}
+                      title={config.name}
+                    >
+                      <div className="flex flex-col items-center gap-1">
+                        <Icon className={`w-5 h-5 ${isActive ? 'text-white' : 'text-white/70'}`} />
+                        <span className={`text-[10px] font-medium ${isActive ? 'text-white' : 'text-white/70'}`}>
+                          {config.name}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
 
