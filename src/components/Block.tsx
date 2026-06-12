@@ -43,6 +43,7 @@ export function Block({
   const materialRef = useRef<THREE.MeshStandardMaterial | null>(null);
   const textureRef = useRef<THREE.CanvasTexture | null>(null);
   const baseCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [canvasTexture, setCanvasTexture] = useState<THREE.CanvasTexture | null>(null);
   const [opacity, setOpacity] = useState(1);
   const [destroyed, setDestroyed] = useState(false);
   const blockData = useGameStore((s) => s.blocks.get(id));
@@ -86,6 +87,9 @@ export function Block({
       hasSprayTexture.current = true;
     }
     textureRef.current.needsUpdate = true;
+    if (materialRef.current) {
+      materialRef.current.needsUpdate = true;
+    }
   }, [id, material, getBlockSprayCanvas]);
 
   const collectSprayColors = useCallback((): string[] => {
@@ -152,11 +156,14 @@ export function Block({
     texture.wrapT = THREE.RepeatWrapping;
     texture.needsUpdate = true;
     textureRef.current = texture;
+    setCanvasTexture(texture);
 
     updateBlockTexture();
 
     return () => {
       texture.dispose();
+      textureRef.current = null;
+      setCanvasTexture(null);
     };
   }, [material, updateBlockTexture]);
 
@@ -325,8 +332,9 @@ export function Block({
         if (hasSprayTexture.current) {
           materialRef.current.emissive.copy(audioColorRef.current);
           materialRef.current.emissiveIntensity = emissiveIntensity;
+          materialRef.current.color.set('#ffffff');
         } else {
-          materialRef.current.color.copy(audioColorRef.current);
+          materialRef.current.color.set('#ffffff');
           materialRef.current.emissive.copy(audioColorRef.current);
           materialRef.current.emissiveIntensity = emissiveIntensity;
         }
@@ -335,11 +343,11 @@ export function Block({
           damageFlash.current -= delta;
           const intensity = Math.max(0, damageFlash.current / 0.3);
           materialRef.current.emissiveIntensity = intensity * 2;
-          materialRef.current.color.copy(baseColorRef.current);
+          materialRef.current.color.set('#ffffff');
           materialRef.current.emissive.set(properties.color);
         } else {
           materialRef.current.emissiveIntensity = 0;
-          materialRef.current.color.lerp(baseColorRef.current, 0.1);
+          materialRef.current.color.set('#ffffff');
         }
       }
 
@@ -432,7 +440,7 @@ export function Block({
         <meshStandardMaterial
           ref={materialRef}
           color="#ffffff"
-          map={textureRef.current}
+          map={canvasTexture}
           transparent={isGlass || destroyed}
           opacity={destroyed ? opacity : (isGlass ? 0.6 : 1)}
           roughness={material === 'wood' ? 0.8 : material === 'concrete' ? 0.9 : 0.1}
