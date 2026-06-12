@@ -80,21 +80,28 @@ function GhostBlock() {
   const buildTool = useGameStore((s) => s.buildTool);
   const heightLevel = useBuildHeightLevel((s) => s.heightLevel);
   const [ghostPos, setGhostPos] = useState<[number, number, number] | null>(null);
+  const [isColliding, setIsColliding] = useState(false);
   const { camera, raycaster, pointer, scene } = useThree();
   const intersectionPoint = useRef(new THREE.Vector3());
   const lastPointer = useRef({ x: 0, y: 0 });
+  const lastHeight = useRef(0);
   const heightPlane = useRef(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0));
 
   useFrame(() => {
     if (buildTool !== 'place') {
       setGhostPos(null);
+      setIsColliding(false);
       return;
     }
 
-    if (Math.abs(pointer.x - lastPointer.current.x) < 0.001 && Math.abs(pointer.y - lastPointer.current.y) < 0.001) {
+    const pointerMoved = Math.abs(pointer.x - lastPointer.current.x) > 0.001 || Math.abs(pointer.y - lastPointer.current.y) > 0.001;
+    const heightChanged = heightLevel !== lastHeight.current;
+
+    if (!pointerMoved && !heightChanged) {
       return;
     }
     lastPointer.current = { x: pointer.x, y: pointer.y };
+    lastHeight.current = heightLevel;
 
     raycaster.setFromCamera(pointer, camera);
 
@@ -117,6 +124,8 @@ function GhostBlock() {
       }
     }
 
+    let newPos: [number, number, number] | null = null;
+
     if (hitPoint && hitFaceNormal) {
       const snappedX = Math.round(hitPoint.x / GRID_SIZE) * GRID_SIZE;
       const snappedZ = Math.round(hitPoint.z / GRID_SIZE) * GRID_SIZE;
@@ -124,10 +133,10 @@ function GhostBlock() {
       if (Math.abs(hitFaceNormal.y) > 0.5) {
         if (hitFaceNormal.y > 0) {
           const stackY = findStackHeight(snappedX, snappedZ);
-          setGhostPos([snappedX, stackY, snappedZ]);
+          newPos = [snappedX, stackY, snappedZ];
         } else {
           const belowY = Math.floor(hitPoint.y / BLOCK_UNIT) * BLOCK_UNIT + HALF_BLOCK;
-          setGhostPos([snappedX, Math.max(HALF_BLOCK, belowY - BLOCK_UNIT), snappedZ]);
+          newPos = [snappedX, Math.max(HALF_BLOCK, belowY - BLOCK_UNIT), snappedZ];
         }
       } else {
         const offsetX = hitFaceNormal.x > 0 ? GRID_SIZE : hitFaceNormal.x < 0 ? -GRID_SIZE : 0;
@@ -135,7 +144,7 @@ function GhostBlock() {
         const targetX = snappedX + offsetX;
         const targetZ = snappedZ + offsetZ;
         const stackY = findStackHeight(targetX, targetZ);
-        setGhostPos([targetX, stackY, targetZ]);
+        newPos = [targetX, stackY, targetZ];
       }
     } else {
       heightPlane.current.set(new THREE.Vector3(0, 1, 0), -(heightLevel * BLOCK_UNIT + HALF_BLOCK));
@@ -143,10 +152,17 @@ function GhostBlock() {
         const snappedX = Math.round(intersectionPoint.current.x / GRID_SIZE) * GRID_SIZE;
         const snappedZ = Math.round(intersectionPoint.current.z / GRID_SIZE) * GRID_SIZE;
         const snappedY = heightLevel * BLOCK_UNIT + HALF_BLOCK;
-        setGhostPos([snappedX, snappedY, snappedZ]);
-      } else {
-        setGhostPos(null);
+        newPos = [snappedX, snappedY, snappedZ];
       }
+    }
+
+    if (newPos) {
+      const colliding = checkCollision(newPos, [BLOCK_UNIT, BLOCK_UNIT, BLOCK_UNIT]);
+      setGhostPos(newPos);
+      setIsColliding(colliding);
+    } else {
+      setGhostPos(null);
+      setIsColliding(false);
     }
   });
 
@@ -155,19 +171,24 @@ function GhostBlock() {
 
   if (!ghostPos) return null;
 
+  const displayColor = isColliding ? '#ff3333' : properties.color;
+  const edgeColor = isColliding ? '#ff6666' : '#ffffff';
+
   return (
     <mesh position={ghostPos}>
       <boxGeometry args={[BLOCK_UNIT, BLOCK_UNIT, BLOCK_UNIT]} />
       <meshStandardMaterial
-        color={properties.color}
+        color={displayColor}
         transparent
         opacity={isGlass ? 0.3 : 0.4}
         roughness={0.5}
         depthWrite={false}
+        emissive={isColliding ? '#ff0000' : '#000000'}
+        emissiveIntensity={isColliding ? 0.3 : 0}
       />
       <lineSegments>
         <edgesGeometry args={[new THREE.BoxGeometry(BLOCK_UNIT, BLOCK_UNIT, BLOCK_UNIT)]} />
-        <lineBasicMaterial color="#ffffff" transparent opacity={0.6} />
+        <lineBasicMaterial color={edgeColor} transparent opacity={0.8} />
       </lineSegments>
     </mesh>
   );
@@ -195,6 +216,32 @@ function findStackHeight(x: number, z: number, excludeId?: string): number {
   return maxTop + HALF_BLOCK;
 }
 
+function checkCollision(position: [number, number, number], size: [number, number, number], excludeId?: string): boolean {
+  const blocks = useGameStore.getState().blocks;
+  const [px, py, pz] = position;
+  const halfW = size[0] / 2;
+  const halfH = size[1] / 2;
+  const halfD = size[2] / 2;
+
+  for (const [id, block] of blocks.entries()) {
+    if (excludeId && id === excludeId) continue;
+    const [bx, by, bz] = block.position;
+    const bHalfW = block.size[0] / 2;
+    const bHalfH = block.size[1] / 2;
+    const bHalfD = block.size[2] / 2;
+
+    if (
+      Math.abs(bx - px) < halfW + bHalfW - 0.001 &&
+      Math.abs(by - py) < halfH + bHalfH - 0.001 &&
+      Math.abs(bz - pz) < halfD + bHalfD - 0.001
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function BuildBlock({ block, isSelected }: { block: BlockData; isSelected: boolean }) {
   const meshRef = useRef<THREE.Mesh>(null);
   const outlineRef = useRef<THREE.LineSegments>(null);
@@ -210,6 +257,10 @@ function BuildBlock({ block, isSelected }: { block: BlockData; isSelected: boole
   const isDragMoving = useRef(false);
   const dragStart = useRef<[number, number, number] | null>(null);
   const movePlaneRef = useRef(new THREE.Plane(new THREE.Vector3(0, 1, 0), -block.position[1]));
+  const lastPointer = useRef({ x: 0, y: 0 });
+  const lastHeightLevel = useRef(0);
+  const dragBaseX = useRef(0);
+  const dragBaseZ = useRef(0);
   const { camera, raycaster, pointer } = useThree();
   const intersectionPoint = useRef(new THREE.Vector3());
   const updateBlockPosition = useGameStore((s) => s.updateBlockPosition);
@@ -218,10 +269,12 @@ function BuildBlock({ block, isSelected }: { block: BlockData; isSelected: boole
     const [bx, by, bz] = block.position;
     const halfH = block.size[1] / 2;
     const newY = by + halfH + HALF_BLOCK;
+    const newPos: [number, number, number] = [bx, newY, bz];
+    if (checkCollision(newPos, [BLOCK_UNIT, BLOCK_UNIT, BLOCK_UNIT])) return;
     const props = materialProperties[buildMaterial];
     const newBlock: BlockData = {
       id: generateId(),
-      position: [bx, newY, bz],
+      position: newPos,
       size: [BLOCK_UNIT, BLOCK_UNIT, BLOCK_UNIT],
       material: buildMaterial,
       health: props.health,
@@ -261,9 +314,12 @@ function BuildBlock({ block, isSelected }: { block: BlockData; isSelected: boole
           placeY = findStackHeight(placeX, placeZ);
         }
 
+        const placePos: [number, number, number] = [placeX, placeY, placeZ];
+        if (checkCollision(placePos, [BLOCK_UNIT, BLOCK_UNIT, BLOCK_UNIT])) return;
+
         const newBlock: BlockData = {
           id: generateId(),
-          position: [placeX, placeY, placeZ],
+          position: placePos,
           size: [BLOCK_UNIT, BLOCK_UNIT, BLOCK_UNIT],
           material: buildMaterial,
           health: props.health,
@@ -304,7 +360,11 @@ function BuildBlock({ block, isSelected }: { block: BlockData; isSelected: boole
     setHeightLevel(currentBlockLevel);
     const planeY = currentBlockLevel * BLOCK_UNIT + HALF_BLOCK;
     movePlaneRef.current.set(new THREE.Vector3(0, 1, 0), -planeY);
-  }, [buildTool, isSelected, block.position, setHeightLevel]);
+    lastPointer.current = { x: pointer.x, y: pointer.y };
+    lastHeightLevel.current = currentBlockLevel;
+    dragBaseX.current = block.position[0];
+    dragBaseZ.current = block.position[2];
+  }, [buildTool, isSelected, block.position, setHeightLevel, pointer]);
 
   const handlePointerUp = useCallback(() => {
     if (!isDragMoving.current || !dragStart.current) return;
@@ -324,18 +384,39 @@ function BuildBlock({ block, isSelected }: { block: BlockData; isSelected: boole
 
   useFrame(() => {
     if (isDragMoving.current && buildTool === 'move' && isSelected) {
-      raycaster.setFromCamera(pointer, camera);
-      const ray = raycaster.ray;
-      const planeY = heightLevel * BLOCK_UNIT + HALF_BLOCK;
-      movePlaneRef.current.set(new THREE.Vector3(0, 1, 0), -planeY);
-      if (ray.intersectPlane(movePlaneRef.current, intersectionPoint.current)) {
-        const snappedX = Math.round(intersectionPoint.current.x / GRID_SIZE) * GRID_SIZE;
-        const snappedZ = Math.round(intersectionPoint.current.z / GRID_SIZE) * GRID_SIZE;
+      const pointerMoved = Math.abs(pointer.x - lastPointer.current.x) > 0.001 || Math.abs(pointer.y - lastPointer.current.y) > 0.001;
+      const heightChanged = heightLevel !== lastHeightLevel.current;
+
+      if (pointerMoved) {
+        raycaster.setFromCamera(pointer, camera);
+        const ray = raycaster.ray;
+        const planeY = heightLevel * BLOCK_UNIT + HALF_BLOCK;
+        movePlaneRef.current.set(new THREE.Vector3(0, 1, 0), -planeY);
+        if (ray.intersectPlane(movePlaneRef.current, intersectionPoint.current)) {
+          const snappedX = Math.round(intersectionPoint.current.x / GRID_SIZE) * GRID_SIZE;
+          const snappedZ = Math.round(intersectionPoint.current.z / GRID_SIZE) * GRID_SIZE;
+          const snappedY = heightLevel * BLOCK_UNIT + HALF_BLOCK;
+          if (snappedX !== block.position[0] || Math.abs(snappedY - block.position[1]) > 0.001 || snappedZ !== block.position[2]) {
+            if (!checkCollision([snappedX, snappedY, snappedZ], [BLOCK_UNIT, BLOCK_UNIT, BLOCK_UNIT], block.id)) {
+              updateBlockPosition(block.id, [snappedX, snappedY, snappedZ]);
+              dragBaseX.current = snappedX;
+              dragBaseZ.current = snappedZ;
+            }
+          }
+        }
+        lastPointer.current = { x: pointer.x, y: pointer.y };
+      } else if (heightChanged) {
         const snappedY = heightLevel * BLOCK_UNIT + HALF_BLOCK;
-        if (snappedX !== block.position[0] || Math.abs(snappedY - block.position[1]) > 0.001 || snappedZ !== block.position[2]) {
-          updateBlockPosition(block.id, [snappedX, snappedY, snappedZ]);
+        const newX = dragBaseX.current;
+        const newZ = dragBaseZ.current;
+        if (Math.abs(snappedY - block.position[1]) > 0.001 || newX !== block.position[0] || newZ !== block.position[2]) {
+          if (!checkCollision([newX, snappedY, newZ], [BLOCK_UNIT, BLOCK_UNIT, BLOCK_UNIT], block.id)) {
+            updateBlockPosition(block.id, [newX, snappedY, newZ]);
+          }
         }
       }
+
+      lastHeightLevel.current = heightLevel;
     }
   });
 
@@ -415,11 +496,14 @@ function PlacementHandler() {
       const snappedZ = Math.round(intersectionPoint.current.z / GRID_SIZE) * GRID_SIZE;
       const snappedY = findStackHeight(snappedX, snappedZ);
       const finalY = heightLevel > 0 ? Math.max(snappedY, heightLevel * BLOCK_UNIT + HALF_BLOCK) : snappedY;
+      const finalPos: [number, number, number] = [snappedX, finalY, snappedZ];
+
+      if (checkCollision(finalPos, [BLOCK_UNIT, BLOCK_UNIT, BLOCK_UNIT])) return;
 
       const properties = materialProperties[buildMaterial];
       const placedBlock: BlockData = {
         id: generateId(),
-        position: [snappedX, finalY, snappedZ],
+        position: finalPos,
         size: [BLOCK_UNIT, BLOCK_UNIT, BLOCK_UNIT],
         material: buildMaterial,
         health: properties.health,
@@ -537,8 +621,10 @@ function KeyboardHandler() {
         if (moved) {
           toPos[0] = Math.max(-GRID_HALF, Math.min(GRID_HALF, toPos[0]));
           toPos[2] = Math.max(-GRID_HALF, Math.min(GRID_HALF, toPos[2]));
-          updateBlockPosition(selectedBlockId, toPos);
-          pushUndoAction({ type: 'move', blockId: selectedBlockId, fromPosition: fromPos, toPosition: toPos });
+          if (!checkCollision(toPos, block.size, selectedBlockId)) {
+            updateBlockPosition(selectedBlockId, toPos);
+            pushUndoAction({ type: 'move', blockId: selectedBlockId, fromPosition: fromPos, toPosition: toPos });
+          }
           return;
         }
       }
