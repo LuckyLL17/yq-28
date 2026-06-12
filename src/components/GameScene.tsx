@@ -13,6 +13,7 @@ import { WeaponSystem, WeaponAimIndicator } from './WeaponSystem';
 import { ControlPanel } from './ControlPanel';
 import { DebrisSystem } from './DebrisSystem';
 import { BuildMode } from './BuildMode';
+import { AudioControlPanel } from './AudioControlPanel';
 
 interface ExplosionInstance {
   id: string;
@@ -388,6 +389,8 @@ export function GameScene() {
         onRegenerateBuilding={handleRegenerateBuilding}
         onClearBuild={handleClearBuild}
       />
+
+      {gameMode === 'destroy' && <AudioControlPanel />}
     </div>
   );
 }

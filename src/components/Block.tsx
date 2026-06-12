@@ -22,6 +22,12 @@ interface CrackData {
   scale: number;
 }
 
+function hslToThreeColor(h: number, s: number, l: number): THREE.Color {
+  const color = new THREE.Color();
+  color.setHSL(h, s, l);
+  return color;
+}
+
 export function Block({
   id,
   position,
@@ -41,6 +47,20 @@ export function Block({
   const damageFlash = useRef(0);
   const cracksRef = useRef<THREE.Mesh[]>([]);
 
+  const audioAnalysis = useGameStore((s) => s.audioAnalysis);
+  const audioEnabled = useGameStore((s) => s.audioEnabled);
+  const audioEffectsConfig = useGameStore((s) => s.audioEffectsConfig);
+
+  const audioShakeRef = useRef({ x: 0, y: 0, z: 0 });
+  const audioGlowRef = useRef(0);
+  const targetScaleRef = useRef(new THREE.Vector3(1, 1, 1));
+  const currentScaleRef = useRef(new THREE.Vector3(1, 1, 1));
+  const rainbowPhase = useRef(Math.random() * Math.PI * 2);
+  const baseColorRef = useRef(new THREE.Color(materialProperties[material].color));
+  const audioColorRef = useRef(new THREE.Color(materialProperties[material].color));
+  const audioDamageAccum = useRef(0);
+  const collapseCooldown = useRef(0);
+
   const onDestroyRef = useRef(onDestroy);
   onDestroyRef.current = onDestroy;
   const spawnDebrisRef = useRef(spawnDebris);
@@ -51,6 +71,10 @@ export function Block({
   const properties = materialProperties[material];
   const isGlass = material === 'glass';
   const healthPercent = blockData ? blockData.health / blockData.maxHealth : 1;
+
+  const blockPosHash = useMemo(() => {
+    return Math.sin(position[0] * 12.9898 + position[1] * 78.233 + position[2] * 37.719) * 43758.5453 % 1;
+  }, [position[0], position[1], position[2]]);
 
   const cracks = useMemo<CrackData[]>(() => {
     const crackCount = Math.max(0, Math.floor((1 - healthPercent) * 6));
@@ -140,27 +164,166 @@ export function Block({
       clearTimeout(wakeTimer);
       removePhysicsBody(id);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, position[0], position[1], position[2], size[0], size[1], size[2], material, addPhysicsBody, removePhysicsBody]);
 
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     const body = getPhysicsBody(id);
     if (body && meshRef.current && !destroyed) {
-      meshRef.current.position.x = body.position.x;
-      meshRef.current.position.y = body.position.y;
-      meshRef.current.position.z = body.position.z;
+      if (audioEnabled && audioAnalysis.volume > 0.01) {
+        const { shakeIntensity } = audioEffectsConfig;
+        const { bass, mid, treble, beatDetected } = audioAnalysis;
+
+        const freqBand = blockPosHash < 0.33 ? bass : blockPosHash < 0.66 ? mid : treble;
+
+        const shakeAmp = 0.05 + bass * 0.25 * shakeIntensity;
+        const beatBoost = beatDetected ? 2.5 : 1;
+
+        audioShakeRef.current.x += ((Math.random() - 0.5) * shakeAmp * beatBoost - audioShakeRef.current.x) * 0.25;
+        audioShakeRef.current.y += ((Math.random() - 0.5) * shakeAmp * 0.8 * beatBoost - audioShakeRef.current.y) * 0.25;
+        audioShakeRef.current.z += ((Math.random() - 0.5) * shakeAmp * beatBoost - audioShakeRef.current.z) * 0.25;
+
+        const pulseScale = 1 + freqBand * 0.12 * shakeIntensity + (beatDetected ? 0.06 : 0);
+        targetScaleRef.current.setScalar(pulseScale);
+
+        currentScaleRef.current.lerp(targetScaleRef.current, 0.2);
+
+        meshRef.current.position.x = body.position.x + audioShakeRef.current.x;
+        meshRef.current.position.y = body.position.y + audioShakeRef.current.y + Math.sin(state.clock.elapsedTime * 2 + blockPosHash * 10) * bass * 0.1 * shakeIntensity;
+        meshRef.current.position.z = body.position.z + audioShakeRef.current.z;
+
+        meshRef.current.scale.copy(currentScaleRef.current);
+      } else {
+        audioShakeRef.current.x *= 0.8;
+        audioShakeRef.current.y *= 0.8;
+        audioShakeRef.current.z *= 0.8;
+        currentScaleRef.current.lerp(new THREE.Vector3(1, 1, 1), 0.15);
+
+        meshRef.current.position.x = body.position.x + audioShakeRef.current.x;
+        meshRef.current.position.y = body.position.y + audioShakeRef.current.y;
+        meshRef.current.position.z = body.position.z + audioShakeRef.current.z;
+        meshRef.current.scale.copy(currentScaleRef.current);
+      }
+
       meshRef.current.quaternion.x = body.quaternion.x;
       meshRef.current.quaternion.y = body.quaternion.y;
       meshRef.current.quaternion.z = body.quaternion.z;
       meshRef.current.quaternion.w = body.quaternion.w;
     }
 
-    if (damageFlash.current > 0 && materialRef.current) {
-      damageFlash.current -= delta;
-      const intensity = Math.max(0, damageFlash.current / 0.3);
-      materialRef.current.emissiveIntensity = intensity * 2;
-    } else if (materialRef.current) {
-      materialRef.current.emissiveIntensity = 0;
+    if (materialRef.current) {
+      if (audioEnabled && audioAnalysis.volume > 0.01) {
+        const { glowIntensity, colorMode } = audioEffectsConfig;
+        const { bass, mid, treble, beatDetected } = audioAnalysis;
+
+        const freqBand = blockPosHash < 0.33 ? bass : blockPosHash < 0.66 ? mid : treble;
+
+        const targetGlow = (freqBand * 2 + (beatDetected ? 0.8 : 0)) * glowIntensity;
+        audioGlowRef.current += (targetGlow - audioGlowRef.current) * 0.2;
+
+        const emissiveIntensity = Math.max(
+          damageFlash.current > 0 ? (damageFlash.current / 0.3) * 2 : 0,
+          audioGlowRef.current
+        );
+
+        switch (colorMode) {
+          case 'frequency': {
+            const hue = blockPosHash < 0.33 ? 0.02 : blockPosHash < 0.66 ? 0.12 : 0.58;
+            const saturation = 0.6 + freqBand * 0.4;
+            const lightness = 0.25 + freqBand * 0.35;
+            audioColorRef.current = hslToThreeColor(hue, saturation, lightness);
+            break;
+          }
+          case 'rainbow': {
+            rainbowPhase.current += delta * (0.5 + bass * 2);
+            const hue = (rainbowPhase.current + blockPosHash) % 1;
+            audioColorRef.current = hslToThreeColor(hue, 0.85, 0.45 + freqBand * 0.25);
+            break;
+          }
+          case 'pulse': {
+            const baseHue = new THREE.Color(properties.color).getHSL({ h: 0, s: 0, l: 0 }).h;
+            const hue = (baseHue + beatDetected ? 0.05 : 0) % 1;
+            audioColorRef.current = hslToThreeColor(hue, 0.7, 0.3 + freqBand * 0.4);
+            break;
+          }
+          case 'material':
+          default: {
+            audioColorRef.current.copy(baseColorRef.current);
+            break;
+          }
+        }
+
+        materialRef.current.color.copy(audioColorRef.current);
+        materialRef.current.emissive.copy(audioColorRef.current);
+        materialRef.current.emissiveIntensity = emissiveIntensity;
+      } else {
+        if (damageFlash.current > 0) {
+          damageFlash.current -= delta;
+          const intensity = Math.max(0, damageFlash.current / 0.3);
+          materialRef.current.emissiveIntensity = intensity * 2;
+          materialRef.current.color.copy(baseColorRef.current);
+          materialRef.current.emissive.set(properties.color);
+        } else {
+          materialRef.current.emissiveIntensity = 0;
+          materialRef.current.color.lerp(baseColorRef.current, 0.1);
+        }
+      }
+
+      if (damageFlash.current > 0 && !audioEnabled) {
+        damageFlash.current -= delta;
+      }
+    }
+
+    if (audioEnabled && audioEffectsConfig.enableCollapse && !destroyed && body) {
+      collapseCooldown.current = Math.max(0, collapseCooldown.current - delta);
+      const { bass, treble, beatDetected, volume } = audioAnalysis;
+      const { collapseThreshold } = audioEffectsConfig;
+
+      const collapseEnergy = bass * 0.5 + volume * 0.3 + (beatDetected ? 0.4 : 0);
+      const sensitivity = 0.5 + treble * 0.5;
+
+      if (collapseEnergy > collapseThreshold && collapseCooldown.current === 0) {
+        audioDamageAccum.current += collapseEnergy * sensitivity * delta * 60;
+      }
+
+      if (audioDamageAccum.current > 0) {
+        audioDamageAccum.current = Math.max(0, audioDamageAccum.current - delta * 0.5);
+
+        const damageChance = audioDamageAccum.current * 0.02;
+        if (Math.random() < damageChance && collapseCooldown.current === 0) {
+          const damage = materialProperties[material].health * (0.15 + bass * 0.35);
+          collapseCooldown.current = 0.15;
+
+          damageFlash.current = 0.4;
+          if (damageBlockRef.current(id, damage)) {
+            setDestroyed(true);
+            if (meshRef.current) {
+              const pos = meshRef.current.position;
+              onDestroyRef.current([pos.x, pos.y, pos.z], material);
+              if (spawnDebrisRef.current) {
+                spawnDebrisRef.current([pos.x, pos.y, pos.z], size, material);
+              }
+            }
+          } else {
+            if (body && body.type !== CANNON.Body.DYNAMIC) {
+              body.type = CANNON.Body.DYNAMIC;
+            }
+            body.wakeUp();
+            const forceStrength = (50 + bass * 200) * (1 + blockPosHash);
+            body.applyForce(
+              new CANNON.Vec3(
+                (Math.random() - 0.5) * forceStrength,
+                forceStrength * 0.6,
+                (Math.random() - 0.5) * forceStrength
+              ),
+              new CANNON.Vec3(
+                position[0] + (Math.random() - 0.5) * size[0],
+                position[1] + (Math.random() - 0.5) * size[1],
+                position[2] + (Math.random() - 0.5) * size[2]
+              )
+            );
+          }
+        }
+      }
     }
 
     if (destroyed) {

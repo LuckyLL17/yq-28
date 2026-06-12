@@ -6,6 +6,23 @@ export type MaterialType = 'wood' | 'glass' | 'concrete';
 export type GameMode = 'destroy' | 'build';
 export type BuildTool = 'place' | 'move' | 'rotate' | 'delete';
 
+export interface AudioAnalysisData {
+  bass: number;
+  mid: number;
+  treble: number;
+  volume: number;
+  spectrum: Float32Array;
+  beatDetected: boolean;
+}
+
+export interface AudioEffectsConfig {
+  shakeIntensity: number;
+  glowIntensity: number;
+  collapseThreshold: number;
+  enableCollapse: boolean;
+  colorMode: 'frequency' | 'rainbow' | 'material' | 'pulse';
+}
+
 export interface BlockData {
   id: string;
   position: [number, number, number];
@@ -79,6 +96,12 @@ interface GameState {
   undo: () => void;
   redo: () => void;
   clearBuildState: () => void;
+  audioAnalysis: AudioAnalysisData;
+  setAudioAnalysis: (analysis: AudioAnalysisData) => void;
+  audioEnabled: boolean;
+  setAudioEnabled: (enabled: boolean) => void;
+  audioEffectsConfig: AudioEffectsConfig;
+  updateAudioEffectsConfig: (config: Partial<AudioEffectsConfig>) => void;
 }
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
@@ -91,10 +114,34 @@ export const materialProperties: Record<MaterialType, { color: string; health: n
 
 export const MAX_UNDO_STEPS = 50;
 
+const EMPTY_SPECTRUM = new Float32Array(1024);
+
 export const useGameStore = create<GameState>((set, get) => ({
   weapon: 'wreckingBall',
   setWeapon: (weapon) => set({ weapon }),
   blocks: new Map(),
+  audioAnalysis: {
+    bass: 0,
+    mid: 0,
+    treble: 0,
+    volume: 0,
+    spectrum: EMPTY_SPECTRUM,
+    beatDetected: false,
+  },
+  setAudioAnalysis: (analysis) => set({ audioAnalysis: analysis }),
+  audioEnabled: false,
+  setAudioEnabled: (enabled) => set({ audioEnabled: enabled }),
+  audioEffectsConfig: {
+    shakeIntensity: 0.6,
+    glowIntensity: 0.8,
+    collapseThreshold: 0.75,
+    enableCollapse: true,
+    colorMode: 'frequency',
+  },
+  updateAudioEffectsConfig: (config) =>
+    set((state) => ({
+      audioEffectsConfig: { ...state.audioEffectsConfig, ...config },
+    })),
   addBlock: (block) => {
     const blocks = new Map(get().blocks);
     blocks.set(block.id, { ...block });
