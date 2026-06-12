@@ -13,7 +13,7 @@ interface BlockProps {
   removePhysicsBody: (id: string) => void;
   getPhysicsBody: (id: string) => CANNON.Body | undefined;
   onDestroy: (position: [number, number, number], material: MaterialType) => void;
-  spawnDebris?: (position: [number, number, number], size: [number, number, number], material: MaterialType) => void;
+  spawnDebris?: (position: [number, number, number], size: [number, number, number], material: MaterialType, sprayColors?: string[]) => void;
 }
 
 interface CrackData {
@@ -41,11 +41,16 @@ export function Block({
 }: BlockProps) {
   const meshRef = useRef<THREE.Mesh>(null);
   const materialRef = useRef<THREE.MeshStandardMaterial | null>(null);
+  const textureRef = useRef<THREE.CanvasTexture | null>(null);
+  const baseCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [opacity, setOpacity] = useState(1);
   const [destroyed, setDestroyed] = useState(false);
   const blockData = useGameStore((s) => s.blocks.get(id));
   const damageFlash = useRef(0);
   const cracksRef = useRef<THREE.Mesh[]>([]);
+  const lastSprayVersion = useRef(0);
+  const getBlockSprayCanvas = useGameStore((s) => s.getBlockSprayCanvas);
+  const getBlockSprayPoints = useGameStore((s) => s.getBlockSprayPoints);
 
   const audioAnalysis = useGameStore((s) => s.audioAnalysis);
   const audioEnabled = useGameStore((s) => s.audioEnabled);
@@ -60,6 +65,36 @@ export function Block({
   const audioColorRef = useRef(new THREE.Color(materialProperties[material].color));
   const audioDamageAccum = useRef(0);
   const collapseCooldown = useRef(0);
+
+  const updateBlockTexture = useCallback(() => {
+    if (!baseCanvasRef.current || !textureRef.current) return;
+    const baseCtx = baseCanvasRef.current.getContext('2d');
+    if (!baseCtx) return;
+
+    const props = materialProperties[material];
+    const w = baseCanvasRef.current.width;
+    const h = baseCanvasRef.current.height;
+    baseCtx.clearRect(0, 0, w, h);
+    baseCtx.fillStyle = props.color;
+    baseCtx.fillRect(0, 0, w, h);
+
+    const sprayCanvas = getBlockSprayCanvas(id);
+    if (sprayCanvas) {
+      baseCtx.drawImage(sprayCanvas, 0, 0, w, h);
+    }
+    textureRef.current.needsUpdate = true;
+  }, [id, material, getBlockSprayCanvas]);
+
+  const collectSprayColors = useCallback((): string[] => {
+    const colors: string[] = [];
+    const points = getBlockSprayPoints(id);
+    points.forEach((p) => {
+      if (!colors.includes(p.color)) {
+        colors.push(p.color);
+      }
+    });
+    return colors;
+  }, [id, getBlockSprayPoints]);
 
   const onDestroyRef = useRef(onDestroy);
   onDestroyRef.current = onDestroy;
@@ -96,6 +131,31 @@ export function Block({
     }
     return result;
   }, [healthPercent, size]);
+
+  useEffect(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 256;
+    baseCanvasRef.current = canvas;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const props = materialProperties[material];
+      ctx.fillStyle = props.color;
+      ctx.fillRect(0, 0, 256, 256);
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.needsUpdate = true;
+    textureRef.current = texture;
+
+    updateBlockTexture();
+
+    return () => {
+      texture.dispose();
+    };
+  }, [material, updateBlockTexture]);
 
   useEffect(() => {
     const props = materialProperties[material];
@@ -149,9 +209,10 @@ export function Block({
           setDestroyed(true);
           if (meshRef.current) {
             const pos = meshRef.current.position;
+            const sprayColors = collectSprayColors();
             onDestroyRef.current([pos.x, pos.y, pos.z], material);
             if (spawnDebrisRef.current) {
-              spawnDebrisRef.current([pos.x, pos.y, pos.z], size, material);
+              spawnDebrisRef.current([pos.x, pos.y, pos.z], size, material, sprayColors);
             }
           }
         }
@@ -167,6 +228,12 @@ export function Block({
   }, [id, position[0], position[1], position[2], size[0], size[1], size[2], material, addPhysicsBody, removePhysicsBody]);
 
   useFrame((state, delta) => {
+    const currentSprayVersion = blockData?.sprayTextureVersion || 0;
+    if (currentSprayVersion !== lastSprayVersion.current) {
+      lastSprayVersion.current = currentSprayVersion;
+      updateBlockTexture();
+    }
+
     const body = getPhysicsBody(id);
     if (body && meshRef.current && !destroyed) {
       if (audioEnabled && audioAnalysis.volume > 0.01) {
@@ -290,20 +357,21 @@ export function Block({
 
         const damageChance = audioDamageAccum.current * 0.02;
         if (Math.random() < damageChance && collapseCooldown.current === 0) {
-          const damage = materialProperties[material].health * (0.15 + bass * 0.35);
-          collapseCooldown.current = 0.15;
+            const damage = materialProperties[material].health * (0.15 + bass * 0.35);
+            collapseCooldown.current = 0.15;
 
-          damageFlash.current = 0.4;
-          if (damageBlockRef.current(id, damage)) {
-            setDestroyed(true);
-            if (meshRef.current) {
-              const pos = meshRef.current.position;
-              onDestroyRef.current([pos.x, pos.y, pos.z], material);
-              if (spawnDebrisRef.current) {
-                spawnDebrisRef.current([pos.x, pos.y, pos.z], size, material);
+            damageFlash.current = 0.4;
+            if (damageBlockRef.current(id, damage)) {
+              setDestroyed(true);
+              if (meshRef.current) {
+                const pos = meshRef.current.position;
+                const sprayColors = collectSprayColors();
+                onDestroyRef.current([pos.x, pos.y, pos.z], material);
+                if (spawnDebrisRef.current) {
+                  spawnDebrisRef.current([pos.x, pos.y, pos.z], size, material, sprayColors);
+                }
               }
-            }
-          } else {
+            } else {
             if (body && body.type !== CANNON.Body.DYNAMIC) {
               body.type = CANNON.Body.DYNAMIC;
             }
@@ -354,7 +422,8 @@ export function Block({
         <boxGeometry args={size} />
         <meshStandardMaterial
           ref={materialRef}
-          color={properties.color}
+          color="#ffffff"
+          map={textureRef.current}
           transparent={isGlass || destroyed}
           opacity={destroyed ? opacity : (isGlass ? 0.6 : 1)}
           roughness={material === 'wood' ? 0.8 : material === 'concrete' ? 0.9 : 0.1}

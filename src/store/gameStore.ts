@@ -1,10 +1,23 @@
 import { create } from 'zustand';
 import * as CANNON from 'cannon-es';
 
-export type WeaponType = 'wreckingBall' | 'steelBall' | 'explosive';
+export type WeaponType = 'wreckingBall' | 'steelBall' | 'explosive' | 'sprayPaint';
 export type MaterialType = 'wood' | 'glass' | 'concrete';
 export type GameMode = 'destroy' | 'build';
-export type BuildTool = 'place' | 'move' | 'rotate' | 'delete';
+export type BuildTool = 'place' | 'move' | 'rotate' | 'delete' | 'sprayPaint';
+
+export interface SprayPoint {
+  x: number;
+  y: number;
+  face: string;
+  color: string;
+  size: number;
+}
+
+export interface BlockSprayData {
+  blockId: string;
+  points: SprayPoint[];
+}
 
 export interface AudioAnalysisData {
   bass: number;
@@ -31,6 +44,8 @@ export interface BlockData {
   health: number;
   maxHealth: number;
   rotation?: [number, number, number];
+  sprayCanvas?: HTMLCanvasElement | null;
+  sprayTextureVersion?: number;
 }
 
 export interface ParticleData {
@@ -67,6 +82,13 @@ interface GameState {
   damageBlock: (id: string, damage: number) => boolean;
   updateBlockPosition: (id: string, position: [number, number, number]) => void;
   updateBlockRotation: (id: string, rotation: [number, number, number]) => void;
+  sprayColor: string;
+  setSprayColor: (color: string) => void;
+  spraySize: number;
+  setSpraySize: (size: number) => void;
+  addSprayPoint: (blockId: string, point: SprayPoint) => void;
+  getBlockSprayCanvas: (blockId: string) => HTMLCanvasElement | null;
+  getBlockSprayPoints: (blockId: string) => SprayPoint[];
   particles: Map<string, ParticleData>;
   addParticle: (particle: ParticleData) => void;
   removeParticle: (id: string) => void;
@@ -116,10 +138,97 @@ export const MAX_UNDO_STEPS = 50;
 
 const EMPTY_SPECTRUM = new Float32Array(1024);
 
+const blockSprayCanvases = new Map<string, HTMLCanvasElement>();
+const blockSprayPoints = new Map<string, SprayPoint[]>();
+const SPRAY_CANVAS_SIZE = 256;
+
+function createSprayCanvas(): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = SPRAY_CANVAS_SIZE;
+  canvas.height = SPRAY_CANVAS_SIZE;
+  return canvas;
+}
+
+function getOrCreateSprayCanvas(blockId: string): HTMLCanvasElement {
+  let canvas = blockSprayCanvases.get(blockId);
+  if (!canvas) {
+    canvas = createSprayCanvas();
+    blockSprayCanvases.set(blockId, canvas);
+    blockSprayPoints.set(blockId, []);
+  }
+  return canvas;
+}
+
 export const useGameStore = create<GameState>((set, get) => ({
   weapon: 'wreckingBall',
   setWeapon: (weapon) => set({ weapon }),
   blocks: new Map(),
+  sprayColor: '#ff0066',
+  setSprayColor: (color) => set({ sprayColor: color }),
+  spraySize: 20,
+  setSpraySize: (size) => set({ spraySize: Math.max(5, Math.min(80, size)) }),
+  addSprayPoint: (blockId: string, point: SprayPoint) => {
+    const canvas = getOrCreateSprayCanvas(blockId);
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.save();
+      const gradient = ctx.createRadialGradient(
+        point.x * SPRAY_CANVAS_SIZE,
+        point.y * SPRAY_CANVAS_SIZE,
+        0,
+        point.x * SPRAY_CANVAS_SIZE,
+        point.y * SPRAY_CANVAS_SIZE,
+        point.size
+      );
+      gradient.addColorStop(0, point.color);
+      gradient.addColorStop(0.4, point.color + 'cc');
+      gradient.addColorStop(0.7, point.color + '66');
+      gradient.addColorStop(1, point.color + '00');
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(
+        point.x * SPRAY_CANVAS_SIZE,
+        point.y * SPRAY_CANVAS_SIZE,
+        point.size,
+        0,
+        Math.PI * 2
+      );
+      ctx.fill();
+      ctx.restore();
+
+      const particles = 5 + Math.floor(Math.random() * 8);
+      for (let i = 0; i < particles; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = Math.random() * point.size * 0.8;
+        const px = point.x * SPRAY_CANVAS_SIZE + Math.cos(angle) * dist;
+        const py = point.y * SPRAY_CANVAS_SIZE + Math.sin(angle) * dist;
+        const psize = point.size * (0.1 + Math.random() * 0.3);
+        ctx.fillStyle = point.color + Math.floor(80 + Math.random() * 120).toString(16).padStart(2, '0');
+        ctx.beginPath();
+        ctx.arc(px, py, psize, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    const points = blockSprayPoints.get(blockId) || [];
+    points.push(point);
+    blockSprayPoints.set(blockId, points);
+
+    const blocks = new Map(get().blocks);
+    const block = blocks.get(blockId);
+    if (block) {
+      blocks.set(blockId, {
+        ...block,
+        sprayTextureVersion: (block.sprayTextureVersion || 0) + 1,
+      });
+      set({ blocks });
+    }
+  },
+  getBlockSprayCanvas: (blockId: string) => {
+    return blockSprayCanvases.get(blockId) || null;
+  },
+  getBlockSprayPoints: (blockId: string) => {
+    return blockSprayPoints.get(blockId) || [];
+  },
   audioAnalysis: {
     bass: 0,
     mid: 0,

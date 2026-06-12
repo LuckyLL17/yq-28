@@ -16,7 +16,7 @@ interface DebrisSystemProps {
   addPhysicsBody: (id: string, body: CANNON.Body) => void;
   removePhysicsBody: (id: string) => void;
   getPhysicsBody: (id: string) => CANNON.Body | undefined;
-  registerSpawner: (spawner: (position: [number, number, number], size: [number, number, number], material: MaterialType) => void) => void;
+  registerSpawner: (spawner: (position: [number, number, number], size: [number, number, number], material: MaterialType, sprayColors?: string[]) => void) => void;
 }
 
 export function DebrisSystem({
@@ -32,16 +32,20 @@ export function DebrisSystem({
   const spawnDebris = (
     position: [number, number, number],
     size: [number, number, number],
-    material: MaterialType
+    material: MaterialType,
+    sprayColors?: string[]
   ) => {
     const properties = materialProperties[material];
     const debrisCount = material === 'glass' ? 12 : 8;
-    const colors: Record<MaterialType, string[]> = {
+    const baseColors: Record<MaterialType, string[]> = {
       wood: ['#5D3A1A', '#8B4513', '#A0522D', '#6B4423'],
       glass: ['#88ccff', '#aaddff', '#66bbff', '#cceeff'],
       concrete: ['#666666', '#808080', '#999999', '#555555'],
     };
-    const colorPalette = colors[material];
+    let colorPalette = [...baseColors[material]];
+    if (sprayColors && sprayColors.length > 0) {
+      colorPalette = [...colorPalette, ...sprayColors];
+    }
 
     for (let i = 0; i < debrisCount; i++) {
       const id = `debris_${nextId.current++}`;

@@ -1,5 +1,5 @@
 import { useGameStore, WeaponType, MaterialType, BuildTool } from '@/store/gameStore';
-import { Hammer, Circle, Bomb, RotateCcw, Building2, Castle, Eye, Undo2, Redo2, Trash2, Move, RotateCw, Plus, Box, Wrench, Swords } from 'lucide-react';
+import { Hammer, Circle, Bomb, RotateCcw, Building2, Castle, Eye, Undo2, Redo2, Trash2, Move, RotateCw, Plus, Box, Wrench, Swords, SprayCan } from 'lucide-react';
 
 interface ControlPanelProps {
   onReset: () => void;
@@ -29,6 +29,13 @@ const weaponConfigs: { type: WeaponType; name: string; description: string; icon
     icon: Bomb,
     color: 'from-orange-500 to-red-600',
   },
+  {
+    type: 'sprayPaint',
+    name: '涂鸦喷枪',
+    description: '在方块表面喷涂图案和颜色，破坏时碎片保留涂鸦',
+    icon: SprayCan,
+    color: 'from-pink-500 to-rose-600',
+  },
 ];
 
 const materialConfigs: { type: MaterialType; name: string; icon: typeof Box; color: string; bgClass: string }[] = [
@@ -42,6 +49,13 @@ const toolConfigs: { type: BuildTool; name: string; icon: typeof Plus; color: st
   { type: 'move', name: '移动', icon: Move, color: 'from-blue-500 to-indigo-600' },
   { type: 'rotate', name: '旋转', icon: RotateCw, color: 'from-purple-500 to-violet-600' },
   { type: 'delete', name: '删除', icon: Trash2, color: 'from-red-500 to-rose-600' },
+  { type: 'sprayPaint', name: '涂鸦', icon: SprayCan, color: 'from-pink-500 to-rose-600' },
+];
+
+const SPRAY_COLORS = [
+  '#ff0066', '#ff3366', '#ff6633', '#ff9900', '#ffcc00',
+  '#66ff33', '#00ff66', '#00ffcc', '#00ccff', '#3366ff',
+  '#6633ff', '#cc33ff', '#ff33cc', '#ffffff', '#000000',
 ];
 
 export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild }: ControlPanelProps) {
@@ -61,6 +75,10 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild }: Co
   const undo = useGameStore((s) => s.undo);
   const redo = useGameStore((s) => s.redo);
   const selectedBlockId = useGameStore((s) => s.selectedBlockId);
+  const sprayColor = useGameStore((s) => s.sprayColor);
+  const setSprayColor = useGameStore((s) => s.setSprayColor);
+  const spraySize = useGameStore((s) => s.spraySize);
+  const setSpraySize = useGameStore((s) => s.setSpraySize);
 
   const totalBlocks = blocks.size;
 
@@ -161,6 +179,41 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild }: Co
                 <span className="text-xs">重做</span>
               </button>
             </div>
+
+            {buildTool === 'sprayPaint' && (
+              <div className="mt-3 p-3 rounded-xl bg-white/5 border border-white/10">
+                <div className="text-white/70 text-xs mb-2 font-medium uppercase tracking-wider">喷枪颜色</div>
+                <div className="grid grid-cols-5 gap-1.5 mb-3">
+                  {SPRAY_COLORS.map((color) => (
+                    <button
+                      key={color}
+                      onClick={() => setSprayColor(color)}
+                      className={`relative w-full aspect-square rounded-lg transition-all duration-200 border-2 ${
+                        sprayColor === color
+                          ? 'border-white scale-110 shadow-lg'
+                          : 'border-white/10 hover:border-white/30 hover:scale-105'
+                      }`}
+                      style={{ backgroundColor: color }}
+                    />
+                  ))}
+                </div>
+                <div className="text-white/70 text-xs mb-2 font-medium uppercase tracking-wider">笔触大小</div>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min={5}
+                    max={80}
+                    value={spraySize}
+                    onChange={(e) => setSpraySize(parseInt(e.target.value))}
+                    className="flex-1 h-2 rounded-full appearance-none cursor-pointer"
+                    style={{
+                      background: `linear-gradient(to right, ${sprayColor} 0%, ${sprayColor} ${((spraySize - 5) / 75) * 100}%, rgba(255,255,255,0.1) ${((spraySize - 5) / 75) * 100}%, rgba(255,255,255,0.1) 100%)`,
+                    }}
+                  />
+                  <span className="text-white text-xs font-mono w-10 text-right">{spraySize}</span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -284,6 +337,24 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild }: Co
                   </div>
                 </>
               )}
+              {buildTool === 'sprayPaint' && (
+                <>
+                  <div className="flex items-center gap-2 text-white/80">
+                    <span className="px-2 py-0.5 rounded bg-white/10 text-white font-mono text-xs">左键按住</span>
+                    <span>在方块表面喷涂</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-white/80">
+                    <span className="px-2 py-0.5 rounded bg-white/10 text-white font-mono text-xs">移动鼠标</span>
+                    <span>绘制图案和文字</span>
+                  </div>
+                  <div className="mt-2 p-2 rounded-lg bg-pink-500/20 border border-pink-500/30">
+                    <div className="text-pink-300 text-xs flex items-center gap-1">
+                      <SprayCan className="w-3 h-3" />
+                      在左侧面板选择颜色和笔触大小
+                    </div>
+                  </div>
+                </>
+              )}
               <div className="border-t border-white/10 pt-2 mt-2">
                 <div className="flex items-center gap-2 text-white/80">
                   <span className="px-2 py-0.5 rounded bg-white/10 text-white font-mono text-xs">Ctrl+Z</span>
@@ -372,6 +443,41 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild }: Co
           {shootCooldown && weapon !== 'wreckingBall' && (
             <div className="mt-2 h-1 rounded-full bg-white/10 overflow-hidden">
               <div className="h-full bg-gradient-to-r from-green-400 to-cyan-400 animate-pulse" style={{ width: '60%' }} />
+            </div>
+          )}
+
+          {weapon === 'sprayPaint' && (
+            <div className="mt-4 p-3 rounded-xl bg-white/5 border border-white/10">
+              <div className="text-white/70 text-xs mb-2 font-medium uppercase tracking-wider">喷枪颜色</div>
+              <div className="grid grid-cols-5 gap-1.5 mb-3">
+                {SPRAY_COLORS.map((color) => (
+                  <button
+                    key={color}
+                    onClick={() => setSprayColor(color)}
+                    className={`relative w-full aspect-square rounded-lg transition-all duration-200 border-2 ${
+                      sprayColor === color
+                        ? 'border-white scale-110 shadow-lg'
+                        : 'border-white/10 hover:border-white/30 hover:scale-105'
+                    }`}
+                    style={{ backgroundColor: color }}
+                  />
+                ))}
+              </div>
+              <div className="text-white/70 text-xs mb-2 font-medium uppercase tracking-wider">笔触大小</div>
+              <div className="flex items-center gap-3">
+                <input
+                  type="range"
+                  min={5}
+                  max={80}
+                  value={spraySize}
+                  onChange={(e) => setSpraySize(parseInt(e.target.value))}
+                  className="flex-1 h-2 rounded-full appearance-none cursor-pointer"
+                  style={{
+                    background: `linear-gradient(to right, ${sprayColor} 0%, ${sprayColor} ${((spraySize - 5) / 75) * 100}%, rgba(255,255,255,0.1) ${((spraySize - 5) / 75) * 100}%, rgba(255,255,255,0.1) 100%)`,
+                  }}
+                />
+                <span className="text-white text-xs font-mono w-10 text-right">{spraySize}</span>
+              </div>
             </div>
           )}
         </div>
@@ -485,6 +591,27 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild }: Co
                     </div>
                   </div>
                 )}
+              </>
+            ) : weapon === 'sprayPaint' ? (
+              <>
+                <div className="flex items-center gap-2 text-white/80">
+                  <span className="px-2 py-0.5 rounded bg-white/10 text-white font-mono text-xs">左键按住</span>
+                  <span>在方块表面喷涂</span>
+                </div>
+                <div className="flex items-center gap-2 text-white/80">
+                  <span className="px-2 py-0.5 rounded bg-white/10 text-white font-mono text-xs">移动鼠标</span>
+                  <span>绘制图案和文字</span>
+                </div>
+                <div className="flex items-center gap-2 text-white/80">
+                  <span className="px-2 py-0.5 rounded bg-white/10 text-white font-mono text-xs">滚轮</span>
+                  <span>缩放视角</span>
+                </div>
+                <div className="mt-2 p-2 rounded-lg bg-pink-500/20 border border-pink-500/30">
+                  <div className="text-pink-300 text-xs flex items-center gap-1">
+                    <SprayCan className="w-3 h-3" />
+                    破坏方块后碎片会保留涂鸦颜色
+                  </div>
+                </div>
               </>
             ) : (
               <>

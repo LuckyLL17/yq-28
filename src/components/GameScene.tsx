@@ -14,6 +14,7 @@ import { ControlPanel } from './ControlPanel';
 import { DebrisSystem } from './DebrisSystem';
 import { BuildMode } from './BuildMode';
 import { AudioControlPanel } from './AudioControlPanel';
+import { SprayTool } from './SprayTool';
 
 interface ExplosionInstance {
   id: string;
@@ -152,7 +153,7 @@ export function GameScene() {
   const [buildingGenerated, setBuildingGenerated] = useState(false);
   const [rebuildCounter, setRebuildCounter] = useState(0);
   const initRef = useRef(false);
-  const spawnDebrisRef = useRef<((position: [number, number, number], size: [number, number, number], material: MaterialType) => void) | null>(null);
+  const spawnDebrisRef = useRef<((position: [number, number, number], size: [number, number, number], material: MaterialType, sprayColors?: string[]) => void) | null>(null);
 
   const handleDestroyBlock = useCallback((position: [number, number, number], material: MaterialType) => {
     requestAnimationFrame(() => {
@@ -160,13 +161,13 @@ export function GameScene() {
     });
   }, []);
 
-  const handleSpawnDebris = useCallback((position: [number, number, number], size: [number, number, number], material: MaterialType) => {
+  const handleSpawnDebris = useCallback((position: [number, number, number], size: [number, number, number], material: MaterialType, sprayColors?: string[]) => {
     if (spawnDebrisRef.current) {
-      spawnDebrisRef.current(position, size, material);
+      spawnDebrisRef.current(position, size, material, sprayColors);
     }
   }, []);
 
-  const registerSpawner = useCallback((spawner: (position: [number, number, number], size: [number, number, number], material: MaterialType) => void) => {
+  const registerSpawner = useCallback((spawner: (position: [number, number, number], size: [number, number, number], material: MaterialType, sprayColors?: string[]) => void) => {
     spawnDebrisRef.current = spawner;
   }, []);
 
@@ -199,7 +200,9 @@ export function GameScene() {
             requestAnimationFrame(() => {
               spawnParticles([bx, by, bz], block.material, block.material === 'glass' ? 30 : 20);
               if (spawnDebrisRef.current) {
-                spawnDebrisRef.current([bx, by, bz], block.size, block.material);
+                const sprayPoints = useGameStore.getState().getBlockSprayPoints(blockId);
+                const sprayColors = sprayPoints.map((p) => p.color).filter((c, i, arr) => arr.indexOf(c) === i);
+                spawnDebrisRef.current([bx, by, bz], block.size, block.material, sprayColors);
               }
             });
           }
@@ -353,6 +356,8 @@ export function GameScene() {
         {gameMode === 'destroy' && <WeaponAimIndicator />}
 
         {gameMode === 'build' && <BuildMode />}
+
+        <SprayTool />
 
         <OrbitControls
           enablePan={true}
