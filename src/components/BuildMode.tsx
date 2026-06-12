@@ -1,15 +1,35 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { useFrame, useThree, ThreeEvent } from '@react-three/fiber';
+import { create } from 'zustand';
 import * as THREE from 'three';
 import { useGameStore, materialProperties, generateId, BlockData } from '@/store/gameStore';
 
 const GRID_SIZE = 1;
 const GRID_HALF = 20;
 const BLOCK_HEIGHT = 1;
+const BLOCK_UNIT = BLOCK_HEIGHT * 0.95;
+const HALF_BLOCK = BLOCK_UNIT / 2;
 const ROTATION_STEP = Math.PI / 2;
+const MAX_HEIGHT_LEVEL = 30;
+
+interface BuildHeightState {
+  heightLevel: number;
+  setHeightLevel: (level: number) => void;
+  incHeight: () => void;
+  decHeight: () => void;
+}
+
+const useBuildHeightLevel = create<BuildHeightState>((set, get) => ({
+  heightLevel: 0,
+  setHeightLevel: (level) => set({ heightLevel: Math.max(0, Math.min(MAX_HEIGHT_LEVEL, level)) }),
+  incHeight: () => set({ heightLevel: Math.min(MAX_HEIGHT_LEVEL, get().heightLevel + 1) }),
+  decHeight: () => set({ heightLevel: Math.max(0, get().heightLevel - 1) }),
+}));
 
 function BuildGrid() {
   const linesRef = useRef<THREE.Group>(null);
+  const buildTool = useGameStore((s) => s.buildTool);
+  const heightLevel = useBuildHeightLevel((s) => s.heightLevel);
 
   useEffect(() => {
     if (!linesRef.current) return;
@@ -41,18 +61,29 @@ function BuildGrid() {
     };
   }, []);
 
-  return <group ref={linesRef} />;
+  const levelY = heightLevel * BLOCK_UNIT + 0.01;
+
+  return (
+    <>
+      <group ref={linesRef} />
+      {(buildTool === 'place' || buildTool === 'move') && heightLevel > 0 && (
+        <group position={[0, levelY, 0]}>
+          <gridHelper args={[GRID_HALF * 2, GRID_HALF * 2, 0x4a5568, 0x4a5568]} />
+        </group>
+      )}
+    </>
+  );
 }
 
 function GhostBlock() {
   const buildMaterial = useGameStore((s) => s.buildMaterial);
   const buildTool = useGameStore((s) => s.buildTool);
+  const heightLevel = useBuildHeightLevel((s) => s.heightLevel);
   const [ghostPos, setGhostPos] = useState<[number, number, number] | null>(null);
-  const [ghostRotation, setGhostRotation] = useState<[number, number, number]>([0, 0, 0]);
-  const { camera, raycaster, pointer } = useThree();
-  const groundPlane = useRef(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0));
+  const { camera, raycaster, pointer, scene } = useThree();
   const intersectionPoint = useRef(new THREE.Vector3());
   const lastPointer = useRef({ x: 0, y: 0 });
+  const heightPlane = useRef(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0));
 
   useFrame(() => {
     if (buildTool !== 'place') {
@@ -66,14 +97,56 @@ function GhostBlock() {
     lastPointer.current = { x: pointer.x, y: pointer.y };
 
     raycaster.setFromCamera(pointer, camera);
-    const ray = raycaster.ray;
 
-    if (ray.intersectPlane(groundPlane.current, intersectionPoint.current)) {
-      const snappedX = Math.round(intersectionPoint.current.x / GRID_SIZE) * GRID_SIZE;
-      const snappedZ = Math.round(intersectionPoint.current.z / GRID_SIZE) * GRID_SIZE;
-      const snappedY = findStackHeight(snappedX, snappedZ);
-      setGhostPos([snappedX, snappedY, snappedZ]);
-      setGhostRotation([0, 0, 0]);
+    const buildMeshes: THREE.Mesh[] = [];
+    scene.traverse((obj) => {
+      if (obj instanceof THREE.Mesh && obj.userData?.isBuildBlock) {
+        buildMeshes.push(obj);
+      }
+    });
+
+    const hits = raycaster.intersectObjects(buildMeshes, false);
+    let hitPoint: THREE.Vector3 | null = null;
+    let hitFaceNormal: THREE.Vector3 | null = null;
+
+    if (hits.length > 0) {
+      hitPoint = hits[0].point;
+      hitFaceNormal = hits[0].face?.normal?.clone() || null;
+      if (hitFaceNormal) {
+        hitFaceNormal.transformDirection(hits[0].object.matrixWorld);
+      }
+    }
+
+    if (hitPoint && hitFaceNormal) {
+      const snappedX = Math.round(hitPoint.x / GRID_SIZE) * GRID_SIZE;
+      const snappedZ = Math.round(hitPoint.z / GRID_SIZE) * GRID_SIZE;
+
+      if (Math.abs(hitFaceNormal.y) > 0.5) {
+        if (hitFaceNormal.y > 0) {
+          const stackY = findStackHeight(snappedX, snappedZ);
+          setGhostPos([snappedX, stackY, snappedZ]);
+        } else {
+          const belowY = Math.floor(hitPoint.y / BLOCK_UNIT) * BLOCK_UNIT + HALF_BLOCK;
+          setGhostPos([snappedX, Math.max(HALF_BLOCK, belowY - BLOCK_UNIT), snappedZ]);
+        }
+      } else {
+        const offsetX = hitFaceNormal.x > 0 ? GRID_SIZE : hitFaceNormal.x < 0 ? -GRID_SIZE : 0;
+        const offsetZ = hitFaceNormal.z > 0 ? GRID_SIZE : hitFaceNormal.z < 0 ? -GRID_SIZE : 0;
+        const targetX = snappedX + offsetX;
+        const targetZ = snappedZ + offsetZ;
+        const stackY = findStackHeight(targetX, targetZ);
+        setGhostPos([targetX, stackY, targetZ]);
+      }
+    } else {
+      heightPlane.current.set(new THREE.Vector3(0, 1, 0), -(heightLevel * BLOCK_UNIT + HALF_BLOCK));
+      if (raycaster.ray.intersectPlane(heightPlane.current, intersectionPoint.current)) {
+        const snappedX = Math.round(intersectionPoint.current.x / GRID_SIZE) * GRID_SIZE;
+        const snappedZ = Math.round(intersectionPoint.current.z / GRID_SIZE) * GRID_SIZE;
+        const snappedY = heightLevel * BLOCK_UNIT + HALF_BLOCK;
+        setGhostPos([snappedX, snappedY, snappedZ]);
+      } else {
+        setGhostPos(null);
+      }
     }
   });
 
@@ -83,8 +156,8 @@ function GhostBlock() {
   if (!ghostPos) return null;
 
   return (
-    <mesh position={ghostPos} rotation={ghostRotation}>
-      <boxGeometry args={[GRID_SIZE * 0.95, BLOCK_HEIGHT * 0.95, GRID_SIZE * 0.95]} />
+    <mesh position={ghostPos}>
+      <boxGeometry args={[BLOCK_UNIT, BLOCK_UNIT, BLOCK_UNIT]} />
       <meshStandardMaterial
         color={properties.color}
         transparent
@@ -93,7 +166,7 @@ function GhostBlock() {
         depthWrite={false}
       />
       <lineSegments>
-        <edgesGeometry args={[new THREE.BoxGeometry(GRID_SIZE * 0.95, BLOCK_HEIGHT * 0.95, GRID_SIZE * 0.95)]} />
+        <edgesGeometry args={[new THREE.BoxGeometry(BLOCK_UNIT, BLOCK_UNIT, BLOCK_UNIT)]} />
         <lineBasicMaterial color="#ffffff" transparent opacity={0.6} />
       </lineSegments>
     </mesh>
@@ -102,7 +175,6 @@ function GhostBlock() {
 
 function findStackHeight(x: number, z: number, excludeId?: string): number {
   const blocks = useGameStore.getState().blocks;
-  const halfBlockHeight = (BLOCK_HEIGHT * 0.95) / 2;
   let maxTop = 0;
 
   blocks.forEach((block, id) => {
@@ -112,7 +184,7 @@ function findStackHeight(x: number, z: number, excludeId?: string): number {
     const halfH = block.size[1] / 2;
     const halfD = block.size[2] / 2;
 
-    if (Math.abs(bx - x) < halfW + 0.01 && Math.abs(bz - z) < halfD + 0.01) {
+    if (Math.abs(bx - x) < halfW + 0.25 && Math.abs(bz - z) < halfD + 0.25) {
       const blockTop = by + halfH;
       if (blockTop > maxTop) {
         maxTop = blockTop;
@@ -120,7 +192,7 @@ function findStackHeight(x: number, z: number, excludeId?: string): number {
     }
   });
 
-  return maxTop + halfBlockHeight;
+  return maxTop + HALF_BLOCK;
 }
 
 function BuildBlock({ block, isSelected }: { block: BlockData; isSelected: boolean }) {
@@ -131,6 +203,7 @@ function BuildBlock({ block, isSelected }: { block: BlockData; isSelected: boole
   const setSelectedBlockId = useGameStore((s) => s.setSelectedBlockId);
   const addBlock = useGameStore((s) => s.addBlock);
   const pushUndoAction = useGameStore((s) => s.pushUndoAction);
+  const heightLevel = useBuildHeightLevel((s) => s.heightLevel);
   const properties = materialProperties[block.material];
   const isGlass = block.material === 'glass';
   const rotation = block.rotation || [0, 0, 0];
@@ -144,12 +217,12 @@ function BuildBlock({ block, isSelected }: { block: BlockData; isSelected: boole
   const placeOnTop = useCallback(() => {
     const [bx, by, bz] = block.position;
     const halfH = block.size[1] / 2;
-    const newY = by + halfH + (BLOCK_HEIGHT * 0.95) / 2;
+    const newY = by + halfH + HALF_BLOCK;
     const props = materialProperties[buildMaterial];
     const newBlock: BlockData = {
       id: generateId(),
       position: [bx, newY, bz],
-      size: [GRID_SIZE * 0.95, BLOCK_HEIGHT * 0.95, GRID_SIZE * 0.95],
+      size: [BLOCK_UNIT, BLOCK_UNIT, BLOCK_UNIT],
       material: buildMaterial,
       health: props.health,
       maxHealth: props.health,
@@ -162,12 +235,51 @@ function BuildBlock({ block, isSelected }: { block: BlockData; isSelected: boole
   const handleClick = useCallback((e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
     if (buildTool === 'place') {
-      placeOnTop();
+      const hit = e.intersections[0];
+      if (hit?.face?.normal) {
+        const normal = hit.face.normal.clone();
+        normal.transformDirection(hit.object.matrixWorld);
+        const [bx, by, bz] = block.position;
+        const props = materialProperties[buildMaterial];
+
+        let placeX = bx;
+        let placeY = by;
+        let placeZ = bz;
+
+        if (normal.y > 0.5) {
+          placeY = findStackHeight(bx, bz);
+        } else if (normal.y < -0.5) {
+          const stackBelow = findStackHeight(bx, bz, block.id);
+          const belowY = stackBelow - BLOCK_UNIT;
+          placeY = Math.max(HALF_BLOCK, belowY);
+        } else {
+          if (Math.abs(normal.x) > Math.abs(normal.z)) {
+            placeX = bx + Math.sign(normal.x) * GRID_SIZE;
+          } else {
+            placeZ = bz + Math.sign(normal.z) * GRID_SIZE;
+          }
+          placeY = findStackHeight(placeX, placeZ);
+        }
+
+        const newBlock: BlockData = {
+          id: generateId(),
+          position: [placeX, placeY, placeZ],
+          size: [BLOCK_UNIT, BLOCK_UNIT, BLOCK_UNIT],
+          material: buildMaterial,
+          health: props.health,
+          maxHealth: props.health,
+          rotation: [0, 0, 0],
+        };
+        addBlock(newBlock);
+        pushUndoAction({ type: 'add', block: { ...newBlock } });
+      } else {
+        placeOnTop();
+      }
       return;
     }
     if (buildTool === 'delete') {
-      const blocks = useGameStore.getState().blocks;
-      const blockData = blocks.get(block.id);
+      const blockMap = useGameStore.getState().blocks;
+      const blockData = blockMap.get(block.id);
       if (blockData) {
         useGameStore.getState().removeBlock(block.id);
         pushUndoAction({ type: 'remove', block: { ...blockData } });
@@ -179,15 +291,20 @@ function BuildBlock({ block, isSelected }: { block: BlockData; isSelected: boole
       return;
     }
     setSelectedBlockId(block.id);
-  }, [block.id, buildTool, isSelected, setSelectedBlockId, pushUndoAction, placeOnTop]);
+  }, [block.id, block.position, block.size, buildTool, buildMaterial, isSelected, setSelectedBlockId, pushUndoAction, addBlock, placeOnTop]);
+
+  const setHeightLevel = useBuildHeightLevel((s) => s.setHeightLevel);
 
   const handlePointerDown = useCallback((e: ThreeEvent<PointerEvent>) => {
     if (buildTool !== 'move' || !isSelected) return;
     e.stopPropagation();
     isDragMoving.current = true;
     dragStart.current = [...block.position] as [number, number, number];
-    movePlaneRef.current.set(new THREE.Vector3(0, 1, 0), -block.position[1]);
-  }, [buildTool, isSelected, block.position]);
+    const currentBlockLevel = Math.max(0, Math.round((block.position[1] - HALF_BLOCK) / BLOCK_UNIT));
+    setHeightLevel(currentBlockLevel);
+    const planeY = currentBlockLevel * BLOCK_UNIT + HALF_BLOCK;
+    movePlaneRef.current.set(new THREE.Vector3(0, 1, 0), -planeY);
+  }, [buildTool, isSelected, block.position, setHeightLevel]);
 
   const handlePointerUp = useCallback(() => {
     if (!isDragMoving.current || !dragStart.current) return;
@@ -209,13 +326,14 @@ function BuildBlock({ block, isSelected }: { block: BlockData; isSelected: boole
     if (isDragMoving.current && buildTool === 'move' && isSelected) {
       raycaster.setFromCamera(pointer, camera);
       const ray = raycaster.ray;
+      const planeY = heightLevel * BLOCK_UNIT + HALF_BLOCK;
+      movePlaneRef.current.set(new THREE.Vector3(0, 1, 0), -planeY);
       if (ray.intersectPlane(movePlaneRef.current, intersectionPoint.current)) {
         const snappedX = Math.round(intersectionPoint.current.x / GRID_SIZE) * GRID_SIZE;
         const snappedZ = Math.round(intersectionPoint.current.z / GRID_SIZE) * GRID_SIZE;
-        const newY = findStackHeight(snappedX, snappedZ, block.id);
-        if (snappedX !== block.position[0] || Math.abs(newY - block.position[1]) > 0.001 || snappedZ !== block.position[2]) {
-          updateBlockPosition(block.id, [snappedX, newY, snappedZ]);
-          movePlaneRef.current.set(new THREE.Vector3(0, 1, 0), -newY);
+        const snappedY = heightLevel * BLOCK_UNIT + HALF_BLOCK;
+        if (snappedX !== block.position[0] || Math.abs(snappedY - block.position[1]) > 0.001 || snappedZ !== block.position[2]) {
+          updateBlockPosition(block.id, [snappedX, snappedY, snappedZ]);
         }
       }
     }
@@ -242,6 +360,7 @@ function BuildBlock({ block, isSelected }: { block: BlockData; isSelected: boole
         onClick={handleClick}
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
+        userData={{ isBuildBlock: true, blockId: block.id }}
       >
         <boxGeometry args={block.size} />
         <meshStandardMaterial
@@ -261,7 +380,7 @@ function BuildBlock({ block, isSelected }: { block: BlockData; isSelected: boole
           rotation={rotation}
         >
           <edgesGeometry args={[new THREE.BoxGeometry(block.size[0] * 1.02, block.size[1] * 1.02, block.size[2] * 1.02)]} />
-          <lineBasicMaterial color="#00ff88" linewidth={2} />
+          <lineBasicMaterial color="#00ff88" />
         </lineSegments>
       )}
     </group>
@@ -273,6 +392,7 @@ function PlacementHandler() {
   const buildMaterial = useGameStore((s) => s.buildMaterial);
   const addBlock = useGameStore((s) => s.addBlock);
   const pushUndoAction = useGameStore((s) => s.pushUndoAction);
+  const heightLevel = useBuildHeightLevel((s) => s.heightLevel);
   const { camera, raycaster, pointer } = useThree();
   const groundPlane = useRef(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0));
   const intersectionPoint = useRef(new THREE.Vector3());
@@ -283,31 +403,39 @@ function PlacementHandler() {
 
     raycaster.setFromCamera(pointer, camera);
     const ray = raycaster.ray;
+
+    if (heightLevel === 0) {
+      groundPlane.current.set(new THREE.Vector3(0, 1, 0), 0);
+    } else {
+      groundPlane.current.set(new THREE.Vector3(0, 1, 0), -(heightLevel * BLOCK_UNIT + HALF_BLOCK));
+    }
+
     if (ray.intersectPlane(groundPlane.current, intersectionPoint.current)) {
       const snappedX = Math.round(intersectionPoint.current.x / GRID_SIZE) * GRID_SIZE;
       const snappedZ = Math.round(intersectionPoint.current.z / GRID_SIZE) * GRID_SIZE;
       const snappedY = findStackHeight(snappedX, snappedZ);
+      const finalY = heightLevel > 0 ? Math.max(snappedY, heightLevel * BLOCK_UNIT + HALF_BLOCK) : snappedY;
 
       const properties = materialProperties[buildMaterial];
-      const block: BlockData = {
+      const placedBlock: BlockData = {
         id: generateId(),
-        position: [snappedX, snappedY, snappedZ],
-        size: [GRID_SIZE * 0.95, BLOCK_HEIGHT * 0.95, GRID_SIZE * 0.95],
+        position: [snappedX, finalY, snappedZ],
+        size: [BLOCK_UNIT, BLOCK_UNIT, BLOCK_UNIT],
         material: buildMaterial,
         health: properties.health,
         maxHealth: properties.health,
         rotation: [0, 0, 0],
       };
 
-      addBlock(block);
-      pushUndoAction({ type: 'add', block: { ...block } });
+      addBlock(placedBlock);
+      pushUndoAction({ type: 'add', block: { ...placedBlock } });
     }
-  }, [buildTool, buildMaterial, addBlock, pushUndoAction, camera, raycaster, pointer]);
+  }, [buildTool, buildMaterial, addBlock, pushUndoAction, camera, raycaster, pointer, heightLevel]);
 
   return (
     <mesh
       rotation={[-Math.PI / 2, 0, 0]}
-      position={[0, 0.01, 0]}
+      position={[0, 0.1, 0]}
       onClick={handleGroundClick}
     >
       <planeGeometry args={[GRID_HALF * 2, GRID_HALF * 2]} />
@@ -319,12 +447,17 @@ function PlacementHandler() {
 function KeyboardHandler() {
   const selectedBlockId = useGameStore((s) => s.selectedBlockId);
   const blocks = useGameStore((s) => s.blocks);
+  const buildTool = useGameStore((s) => s.buildTool);
   const updateBlockRotation = useGameStore((s) => s.updateBlockRotation);
   const pushUndoAction = useGameStore((s) => s.pushUndoAction);
   const undo = useGameStore((s) => s.undo);
   const redo = useGameStore((s) => s.redo);
   const setSelectedBlockId = useGameStore((s) => s.setSelectedBlockId);
   const removeBlock = useGameStore((s) => s.removeBlock);
+  const updateBlockPosition = useGameStore((s) => s.updateBlockPosition);
+  const incHeight = useBuildHeightLevel((s) => s.incHeight);
+  const decHeight = useBuildHeightLevel((s) => s.decHeight);
+  const setHeightLevel = useBuildHeightLevel((s) => s.setHeightLevel);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -339,6 +472,24 @@ function KeyboardHandler() {
         return;
       }
 
+      if (buildTool === 'place' || buildTool === 'move') {
+        if (e.key === 'e' || e.key === 'E') {
+          e.preventDefault();
+          incHeight();
+          return;
+        }
+        if (e.key === 'q' || e.key === 'Q') {
+          e.preventDefault();
+          decHeight();
+          return;
+        }
+        if (e.key === '0') {
+          e.preventDefault();
+          setHeightLevel(0);
+          return;
+        }
+      }
+
       if (!selectedBlockId) return;
       const block = blocks.get(selectedBlockId);
       if (!block) return;
@@ -349,6 +500,47 @@ function KeyboardHandler() {
         const fromRotation = [...currentRot] as [number, number, number];
         updateBlockRotation(selectedBlockId, newRot);
         pushUndoAction({ type: 'rotate', blockId: selectedBlockId, fromRotation, toRotation: newRot });
+      }
+
+      if (buildTool === 'move') {
+        const [px, py, pz] = block.position;
+        const fromPos = [...block.position] as [number, number, number];
+        let moved = false;
+        let toPos: [number, number, number] = [px, py, pz];
+
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          toPos = [px, py, pz - GRID_SIZE];
+          moved = true;
+        } else if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          toPos = [px, py, pz + GRID_SIZE];
+          moved = true;
+        } else if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          toPos = [px - GRID_SIZE, py, pz];
+          moved = true;
+        } else if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          toPos = [px + GRID_SIZE, py, pz];
+          moved = true;
+        } else if (e.key === 'PageUp') {
+          e.preventDefault();
+          toPos = [px, py + BLOCK_UNIT, pz];
+          moved = true;
+        } else if (e.key === 'PageDown') {
+          e.preventDefault();
+          toPos = [px, Math.max(HALF_BLOCK, py - BLOCK_UNIT), pz];
+          moved = true;
+        }
+
+        if (moved) {
+          toPos[0] = Math.max(-GRID_HALF, Math.min(GRID_HALF, toPos[0]));
+          toPos[2] = Math.max(-GRID_HALF, Math.min(GRID_HALF, toPos[2]));
+          updateBlockPosition(selectedBlockId, toPos);
+          pushUndoAction({ type: 'move', blockId: selectedBlockId, fromPosition: fromPos, toPosition: toPos });
+          return;
+        }
       }
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -367,7 +559,7 @@ function KeyboardHandler() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedBlockId, blocks, updateBlockRotation, pushUndoAction, undo, redo, removeBlock, setSelectedBlockId]);
+  }, [selectedBlockId, blocks, buildTool, updateBlockRotation, pushUndoAction, undo, redo, removeBlock, setSelectedBlockId, updateBlockPosition, incHeight, decHeight, setHeightLevel]);
 
   return null;
 }
@@ -379,7 +571,7 @@ function BuildGround() {
         <planeGeometry args={[GRID_HALF * 2, GRID_HALF * 2]} />
         <meshStandardMaterial color="#2a3a2a" roughness={0.9} metalness={0.1} />
       </mesh>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.01, 0]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.005, 0]}>
         <circleGeometry args={[GRID_HALF * 0.8, 64]} />
         <meshStandardMaterial color="#3a4a3a" roughness={0.8} metalness={0.1} />
       </mesh>
@@ -413,7 +605,29 @@ export function BuildMode() {
       {selectedBlockId && buildTool === 'rotate' && (
         <RotateGizmo blockId={selectedBlockId} />
       )}
+
+      <HeightLevelIndicator />
     </>
+  );
+}
+
+function HeightLevelIndicator() {
+  const heightLevel = useBuildHeightLevel((s) => s.heightLevel);
+  const buildTool = useGameStore((s) => s.buildTool);
+
+  if (buildTool !== 'place' && buildTool !== 'move') return null;
+
+  return (
+    <group position={[-GRID_HALF + 1, heightLevel * BLOCK_UNIT + HALF_BLOCK, -GRID_HALF + 1]}>
+      <mesh>
+        <sphereGeometry args={[0.2, 16, 16]} />
+        <meshStandardMaterial
+          color={heightLevel === 0 ? '#88ff88' : '#ffaa44'}
+          emissive={heightLevel === 0 ? '#00ff00' : '#ff6600'}
+          emissiveIntensity={0.8}
+        />
+      </mesh>
+    </group>
   );
 }
 
