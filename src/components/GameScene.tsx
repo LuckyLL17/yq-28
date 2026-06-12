@@ -12,6 +12,7 @@ import { Particles, ExplosionEffect, spawnParticles } from './Particles';
 import { WeaponSystem, WeaponAimIndicator } from './WeaponSystem';
 import { ControlPanel } from './ControlPanel';
 import { DebrisSystem } from './DebrisSystem';
+import { BuildMode } from './BuildMode';
 
 interface ExplosionInstance {
   id: string;
@@ -98,7 +99,37 @@ function SceneLighting() {
   );
 }
 
+function BuildSceneLighting() {
+  return (
+    <>
+      <ambientLight intensity={0.8} color="#ffffff" />
+      <directionalLight
+        position={[20, 40, 20]}
+        intensity={2.5}
+        castShadow
+        shadow-mapSize-width={2048}
+        shadow-mapSize-height={2048}
+        shadow-camera-far={100}
+        shadow-camera-left={-30}
+        shadow-camera-right={30}
+        shadow-camera-top={30}
+        shadow-camera-bottom={-30}
+        shadow-bias={-0.0001}
+      >
+        <orthographicCamera
+          attach="shadow-camera"
+          args={[-30, 30, 30, -30, 0.1, 100]}
+        />
+      </directionalLight>
+      <hemisphereLight intensity={0.7} color="#ccddff" groundColor="#557755" />
+    </>
+  );
+}
+
 export function GameScene() {
+  const gameMode = useGameStore((s) => s.gameMode);
+  const setGameMode = useGameStore((s) => s.setGameMode);
+
   const {
     blocks,
     addBlocks,
@@ -236,14 +267,18 @@ export function GameScene() {
     initRef.current = true;
   }, [resetGame, addBlocks, setWreckingBallActive]);
 
+  const handleClearBuild = useCallback(() => {
+    useGameStore.getState().clearBuildState();
+  }, []);
+
   useEffect(() => {
-    if (!initRef.current) {
+    if (gameMode === 'destroy' && !initRef.current) {
       initRef.current = true;
       const buildingBlocks = generateBuilding({ width: 7, height: 5, depth: 5, blockSize: [1.2, 0.6, 1.2] });
       addBlocks(buildingBlocks);
       setBuildingGenerated(true);
     }
-  }, [addBlocks]);
+  }, [addBlocks, gameMode]);
 
   const blockArray = Array.from(blocks.values());
 
@@ -255,18 +290,18 @@ export function GameScene() {
         gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
         dpr={[1, 2]}
       >
-        <color attach="background" args={['#2a2a4e']} />
-        <fog attach="fog" args={['#2a2a4e', 60, 120]} />
+        <color attach="background" args={[gameMode === 'build' ? '#1a2a1a' : '#2a2a4e']} />
+        <fog attach="fog" args={[gameMode === 'build' ? '#1a2a1a' : '#2a2a4e', 60, 120]} />
 
-        <SceneLighting />
+        {gameMode === 'build' ? <BuildSceneLighting /> : <SceneLighting />}
 
         <SoftShadows size={15} samples={10} focus={0.5} />
 
         <DebugExporter />
 
-        <Ground />
+        {gameMode === 'destroy' && <Ground />}
 
-        {buildingGenerated && blockArray.map((block) => (
+        {gameMode === 'destroy' && buildingGenerated && blockArray.map((block) => (
           <Block
             key={block.id}
             id={block.id}
@@ -281,16 +316,18 @@ export function GameScene() {
           />
         ))}
 
-        <DebrisSystem
-          addPhysicsBody={addBody}
-          removePhysicsBody={removeBody}
-          getPhysicsBody={getBody}
-          registerSpawner={registerSpawner}
-        />
+        {gameMode === 'destroy' && (
+          <DebrisSystem
+            addPhysicsBody={addBody}
+            removePhysicsBody={removeBody}
+            getPhysicsBody={getBody}
+            registerSpawner={registerSpawner}
+          />
+        )}
 
-        <Particles maxParticles={1000} />
+        {gameMode === 'destroy' && <Particles maxParticles={1000} />}
 
-        {explosions.map((explosion) => (
+        {gameMode === 'destroy' && explosions.map((explosion) => (
           <ExplosionEffect
             key={explosion.id}
             position={explosion.position}
@@ -299,18 +336,22 @@ export function GameScene() {
           />
         ))}
 
-        <WeaponSystem
-          addPhysicsBody={addBody}
-          removePhysicsBody={removeBody}
-          getPhysicsBody={getBody}
-          addConstraint={addConstraint}
-          removeConstraint={removeConstraint}
-          applyExplosion={applyExplosion}
-          onExplosion={handleExplosion}
-          rebuildCounter={rebuildCounter}
-        />
+        {gameMode === 'destroy' && (
+          <WeaponSystem
+            addPhysicsBody={addBody}
+            removePhysicsBody={removeBody}
+            getPhysicsBody={getBody}
+            addConstraint={addConstraint}
+            removeConstraint={removeConstraint}
+            applyExplosion={applyExplosion}
+            onExplosion={handleExplosion}
+            rebuildCounter={rebuildCounter}
+          />
+        )}
 
-        <WeaponAimIndicator />
+        {gameMode === 'destroy' && <WeaponAimIndicator />}
+
+        {gameMode === 'build' && <BuildMode />}
 
         <OrbitControls
           enablePan={true}
@@ -321,14 +362,14 @@ export function GameScene() {
           maxPolarAngle={Math.PI / 2 - 0.05}
           minPolarAngle={0.1}
           makeDefault
-          target={[0, 3, 0]}
+          target={gameMode === 'build' ? [0, 1, 0] : [0, 3, 0]}
         />
 
-        <PhysicsStepper step={step} />
+        {gameMode === 'destroy' && <PhysicsStepper step={step} />}
 
         <EffectComposer multisampling={8} enableNormalPass={false}>
           <Bloom
-            intensity={0.6}
+            intensity={gameMode === 'build' ? 0.3 : 0.6}
             luminanceThreshold={0.6}
             luminanceSmoothing={0.9}
             mipmapBlur
@@ -338,13 +379,14 @@ export function GameScene() {
             radialModulation={false}
             modulationOffset={0}
           />
-          <Vignette eskil={false} offset={0.3} darkness={0.7} />
+          <Vignette eskil={false} offset={0.3} darkness={gameMode === 'build' ? 0.4 : 0.7} />
         </EffectComposer>
       </Canvas>
 
       <ControlPanel
         onReset={handleReset}
         onRegenerateBuilding={handleRegenerateBuilding}
+        onClearBuild={handleClearBuild}
       />
     </div>
   );

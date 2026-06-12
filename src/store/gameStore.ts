@@ -3,6 +3,8 @@ import * as CANNON from 'cannon-es';
 
 export type WeaponType = 'wreckingBall' | 'steelBall' | 'explosive';
 export type MaterialType = 'wood' | 'glass' | 'concrete';
+export type GameMode = 'destroy' | 'build';
+export type BuildTool = 'place' | 'move' | 'rotate' | 'delete';
 
 export interface BlockData {
   id: string;
@@ -11,6 +13,7 @@ export interface BlockData {
   material: MaterialType;
   health: number;
   maxHealth: number;
+  rotation?: [number, number, number];
 }
 
 export interface ParticleData {
@@ -31,6 +34,12 @@ export interface ExplosionData {
   maxLife: number;
 }
 
+export type BuildAction =
+  | { type: 'add'; block: BlockData }
+  | { type: 'remove'; block: BlockData }
+  | { type: 'move'; blockId: string; fromPosition: [number, number, number]; toPosition: [number, number, number] }
+  | { type: 'rotate'; blockId: string; fromRotation: [number, number, number]; toRotation: [number, number, number] };
+
 interface GameState {
   weapon: WeaponType;
   setWeapon: (weapon: WeaponType) => void;
@@ -39,6 +48,8 @@ interface GameState {
   addBlocks: (blocks: BlockData[]) => void;
   removeBlock: (id: string) => void;
   damageBlock: (id: string, damage: number) => boolean;
+  updateBlockPosition: (id: string, position: [number, number, number]) => void;
+  updateBlockRotation: (id: string, rotation: [number, number, number]) => void;
   particles: Map<string, ParticleData>;
   addParticle: (particle: ParticleData) => void;
   removeParticle: (id: string) => void;
@@ -54,6 +65,20 @@ interface GameState {
   setWorld: (world: CANNON.World) => void;
   shootCooldown: boolean;
   setShootCooldown: (cooldown: boolean) => void;
+  gameMode: GameMode;
+  setGameMode: (mode: GameMode) => void;
+  buildMaterial: MaterialType;
+  setBuildMaterial: (material: MaterialType) => void;
+  buildTool: BuildTool;
+  setBuildTool: (tool: BuildTool) => void;
+  selectedBlockId: string | null;
+  setSelectedBlockId: (id: string | null) => void;
+  undoStack: BuildAction[];
+  redoStack: BuildAction[];
+  pushUndoAction: (action: BuildAction) => void;
+  undo: () => void;
+  redo: () => void;
+  clearBuildState: () => void;
 }
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
@@ -98,6 +123,22 @@ export const useGameStore = create<GameState>((set, get) => ({
       set({ blocks });
     }
     return false;
+  },
+  updateBlockPosition: (id, position) => {
+    const blocks = new Map(get().blocks);
+    const block = blocks.get(id);
+    if (block) {
+      block.position = position;
+      set({ blocks });
+    }
+  },
+  updateBlockRotation: (id, rotation) => {
+    const blocks = new Map(get().blocks);
+    const block = blocks.get(id);
+    if (block) {
+      block.rotation = rotation;
+      set({ blocks });
+    }
   },
   particles: new Map(),
   addParticle: (particle) => {
@@ -149,6 +190,98 @@ export const useGameStore = create<GameState>((set, get) => ({
   setWorld: (world) => set({ world }),
   shootCooldown: false,
   setShootCooldown: (cooldown) => set({ shootCooldown: cooldown }),
+  gameMode: 'destroy',
+  setGameMode: (mode) => set({ gameMode: mode, selectedBlockId: null, undoStack: [], redoStack: [] }),
+  buildMaterial: 'wood',
+  setBuildMaterial: (material) => set({ buildMaterial: material }),
+  buildTool: 'place',
+  setBuildTool: (tool) => set({ buildTool: tool, selectedBlockId: tool !== 'move' && tool !== 'rotate' ? null : get().selectedBlockId }),
+  selectedBlockId: null,
+  setSelectedBlockId: (id) => set({ selectedBlockId: id }),
+  undoStack: [],
+  redoStack: [],
+  pushUndoAction: (action) => {
+    const undoStack = [...get().undoStack, action];
+    set({ undoStack, redoStack: [] });
+  },
+  undo: () => {
+    const { undoStack, redoStack } = get();
+    if (undoStack.length === 0) return;
+    const action = undoStack[undoStack.length - 1];
+    const newUndoStack = undoStack.slice(0, -1);
+    const newRedoStack = [...redoStack, action];
+
+    const blocks = new Map(get().blocks);
+
+    switch (action.type) {
+      case 'add': {
+        blocks.delete(action.block.id);
+        break;
+      }
+      case 'remove': {
+        blocks.set(action.block.id, action.block);
+        break;
+      }
+      case 'move': {
+        const block = blocks.get(action.blockId);
+        if (block) {
+          block.position = action.fromPosition;
+        }
+        break;
+      }
+      case 'rotate': {
+        const block = blocks.get(action.blockId);
+        if (block) {
+          block.rotation = action.fromRotation;
+        }
+        break;
+      }
+    }
+
+    set({ blocks, undoStack: newUndoStack, redoStack: newRedoStack, selectedBlockId: null });
+  },
+  redo: () => {
+    const { undoStack, redoStack } = get();
+    if (redoStack.length === 0) return;
+    const action = redoStack[redoStack.length - 1];
+    const newRedoStack = redoStack.slice(0, -1);
+    const newUndoStack = [...undoStack, action];
+
+    const blocks = new Map(get().blocks);
+
+    switch (action.type) {
+      case 'add': {
+        blocks.set(action.block.id, action.block);
+        break;
+      }
+      case 'remove': {
+        blocks.delete(action.block.id);
+        break;
+      }
+      case 'move': {
+        const block = blocks.get(action.blockId);
+        if (block) {
+          block.position = action.toPosition;
+        }
+        break;
+      }
+      case 'rotate': {
+        const block = blocks.get(action.blockId);
+        if (block) {
+          block.rotation = action.toRotation;
+        }
+        break;
+      }
+    }
+
+    set({ blocks, undoStack: newUndoStack, redoStack: newRedoStack, selectedBlockId: null });
+  },
+  clearBuildState: () => set({
+    blocks: new Map(),
+    undoStack: [],
+    redoStack: [],
+    selectedBlockId: null,
+  }),
 }));
 
 export { generateId };
