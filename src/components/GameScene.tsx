@@ -3,7 +3,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, SoftShadows } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette, ChromaticAberration } from '@react-three/postprocessing';
 import * as THREE from 'three';
-import { useGameStore, MaterialType, generateId, materialProperties, GravityDirection, BlockData } from '@/store/gameStore';
+import { useGameStore, MaterialType, generateId, materialProperties, GravityDirection, BlockData, BlueprintData } from '@/store/gameStore';
 import { usePhysics } from '@/hooks/usePhysics';
 import { Block } from './Block';
 import { generateBuilding, generateCastle } from './BuildingGenerator';
@@ -348,6 +348,18 @@ export function GameScene() {
     initRef.current = true;
   }, []);
 
+  const handleLoadBlueprint = useCallback((blueprint: BlueprintData) => {
+    initRef.current = false;
+    setWreckingBallActive(false);
+    setRebuildCounter((c) => c + 1);
+
+    useGameStore.getState().loadBlueprint(blueprint.id);
+
+    lastGravityRef.current = blueprint.gravityDirection;
+    setBuildingGenerated(true);
+    initRef.current = true;
+  }, [setWreckingBallActive]);
+
   useEffect(() => {
     if (gameMode === 'destroy' && !initRef.current) {
       initRef.current = true;
@@ -544,6 +556,7 @@ export function GameScene() {
         onClearBuild={handleClearBuild}
         onResetRoboticArm={handleResetRoboticArm}
         onResetPhysicsLab={handleResetPhysicsLab}
+        onLoadBlueprint={handleLoadBlueprint}
       />
 
       {gameMode === 'destroy' && <AudioControlPanel />}

@@ -82,6 +82,14 @@ export interface AudioEffectsConfig {
   colorMode: 'frequency' | 'rainbow' | 'material' | 'pulse';
 }
 
+export interface BlueprintData {
+  id: string;
+  name: string;
+  blocks: { position: [number, number, number]; size: [number, number, number]; material: MaterialType; rotation?: [number, number, number] }[];
+  gravityDirection: GravityDirection;
+  createdAt: number;
+}
+
 export interface BlockData {
   id: string;
   position: [number, number, number];
@@ -251,6 +259,11 @@ interface GameState {
   setSpringDamping: (value: number) => void;
   setRopeLength: (value: number) => void;
   resetPhysicsLab: () => void;
+  blueprints: BlueprintData[];
+  saveBlueprint: (name: string) => void;
+  loadBlueprint: (id: string) => void;
+  deleteBlueprint: (id: string) => void;
+  refreshBlueprints: () => void;
 }
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
@@ -317,6 +330,23 @@ const EMPTY_SPECTRUM = new Float32Array(1024);
 const blockSprayCanvases = new Map<string, HTMLCanvasElement>();
 const blockSprayPoints = new Map<string, SprayPoint[]>();
 const SPRAY_CANVAS_SIZE = 256;
+
+const BLUEPRINTS_KEY = 'destruction-blueprints';
+
+function loadBlueprintsFromStorage(): BlueprintData[] {
+  try {
+    const raw = localStorage.getItem(BLUEPRINTS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveBlueprintsToStorage(blueprints: BlueprintData[]) {
+  try {
+    localStorage.setItem(BLUEPRINTS_KEY, JSON.stringify(blueprints));
+  } catch {}
+}
 
 function createSprayCanvas(): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
@@ -773,6 +803,72 @@ export const useGameStore = create<GameState>((set, get) => ({
       selectedLabObjectId: null,
       constraintStartObjectId: null,
     });
+  },
+  blueprints: loadBlueprintsFromStorage(),
+  saveBlueprint: (name: string) => {
+    const state = get();
+    const blocks = state.blocks;
+    const blockEntries: BlueprintData['blocks'] = [];
+    blocks.forEach((block) => {
+      blockEntries.push({
+        position: [...block.position] as [number, number, number],
+        size: [...block.size] as [number, number, number],
+        material: block.material,
+        rotation: block.rotation ? [...block.rotation] as [number, number, number] : undefined,
+      });
+    });
+
+    if (blockEntries.length === 0) return;
+
+    const blueprint: BlueprintData = {
+      id: generateId(),
+      name,
+      blocks: blockEntries,
+      gravityDirection: state.gravityDirection,
+      createdAt: Date.now(),
+    };
+
+    const blueprints = [...get().blueprints, blueprint];
+    saveBlueprintsToStorage(blueprints);
+    set({ blueprints });
+  },
+  loadBlueprint: (id: string) => {
+    const blueprint = get().blueprints.find((b) => b.id === id);
+    if (!blueprint) return;
+
+    blockSprayCanvases.clear();
+    blockSprayPoints.clear();
+
+    const newBlocks = new Map<string, BlockData>();
+    blueprint.blocks.forEach((entry) => {
+      const blockId = generateId();
+      const props = materialProperties[entry.material];
+      newBlocks.set(blockId, {
+        id: blockId,
+        position: [...entry.position] as [number, number, number],
+        size: [...entry.size] as [number, number, number],
+        material: entry.material,
+        health: props.health,
+        maxHealth: props.health,
+        rotation: entry.rotation ? [...entry.rotation] as [number, number, number] : [0, 0, 0],
+      });
+    });
+
+    set({
+      blocks: newBlocks,
+      gravityDirection: blueprint.gravityDirection,
+      undoStack: [],
+      redoStack: [],
+      selectedBlockId: null,
+    });
+  },
+  deleteBlueprint: (id: string) => {
+    const blueprints = get().blueprints.filter((b) => b.id !== id);
+    saveBlueprintsToStorage(blueprints);
+    set({ blueprints });
+  },
+  refreshBlueprints: () => {
+    set({ blueprints: loadBlueprintsFromStorage() });
   },
 }));
 

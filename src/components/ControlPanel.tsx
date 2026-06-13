@@ -1,5 +1,6 @@
-import { useGameStore, WeaponType, MaterialType, BuildTool, GravityDirection, GRAVITY_LABELS, ConstraintType, LabObjectType, LabTool, WeaponUpgradeKey, WeaponEffectType, UPGRADE_MAX_LEVEL, UPGRADE_LABELS, UPGRADE_MULTIPLIERS, EFFECT_TYPE_LABELS, EFFECT_COLORS } from '@/store/gameStore';
-import { Hammer, Circle, Bomb, RotateCcw, Building2, Castle, Eye, Undo2, Redo2, Trash2, Move, RotateCw, Plus, Box, Wrench, Swords, SprayCan, ArrowDown, ArrowUp, ArrowLeft, ArrowRight, CircleDot, CircleX, Bot, Grip, RefreshCw, FlaskConical, Link, Anchor, Minus, Scaling, Unlink, ChevronUp, Palette, Sparkles, Zap, Target } from 'lucide-react';
+import { useState } from 'react';
+import { useGameStore, WeaponType, MaterialType, BuildTool, GravityDirection, GRAVITY_LABELS, ConstraintType, LabObjectType, LabTool, WeaponUpgradeKey, WeaponEffectType, UPGRADE_MAX_LEVEL, UPGRADE_LABELS, UPGRADE_MULTIPLIERS, EFFECT_TYPE_LABELS, EFFECT_COLORS, BlueprintData } from '@/store/gameStore';
+import { Hammer, Circle, Bomb, RotateCcw, Building2, Castle, Eye, Undo2, Redo2, Trash2, Move, RotateCw, Plus, Box, Wrench, Swords, SprayCan, ArrowDown, ArrowUp, ArrowLeft, ArrowRight, CircleDot, CircleX, Bot, Grip, RefreshCw, FlaskConical, Link, Anchor, Minus, Scaling, Unlink, ChevronUp, Palette, Sparkles, Zap, Target, Save, FolderOpen, X } from 'lucide-react';
 
 interface ControlPanelProps {
   onReset: () => void;
@@ -7,6 +8,7 @@ interface ControlPanelProps {
   onClearBuild: () => void;
   onResetRoboticArm: () => void;
   onResetPhysicsLab: () => void;
+  onLoadBlueprint: (blueprint: BlueprintData) => void;
 }
 
 const weaponConfigs: { type: WeaponType; name: string; description: string; icon: typeof Hammer; color: string }[] = [
@@ -119,7 +121,7 @@ const labToolConfigs: { type: LabTool; name: string; icon: typeof Plus; color: s
   { type: 'delete', name: '删除', icon: Trash2, color: 'from-red-500 to-rose-600' },
 ];
 
-export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild, onResetRoboticArm, onResetPhysicsLab }: ControlPanelProps) {
+export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild, onResetRoboticArm, onResetPhysicsLab, onLoadBlueprint }: ControlPanelProps) {
   const weapon = useGameStore((s) => s.weapon);
   const setWeapon = useGameStore((s) => s.setWeapon);
   const weaponCustomizations = useGameStore((s) => s.weaponCustomizations);
@@ -170,6 +172,13 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild, onRe
   const setSpringDamping = useGameStore((s) => s.setSpringDamping);
   const setRopeLength = useGameStore((s) => s.setRopeLength);
   const resetPhysicsLab = useGameStore((s) => s.resetPhysicsLab);
+
+  const blueprints = useGameStore((s) => s.blueprints);
+  const saveBlueprint = useGameStore((s) => s.saveBlueprint);
+  const loadBlueprint = useGameStore((s) => s.loadBlueprint);
+  const deleteBlueprint = useGameStore((s) => s.deleteBlueprint);
+  const [blueprintName, setBlueprintName] = useState('');
+  const [showBlueprintPanel, setShowBlueprintPanel] = useState(false);
 
   const totalBlocks = blocks.size;
 
@@ -638,6 +647,108 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild, onRe
                   <div className="text-white/50 text-xs">清除所有方块</div>
                 </div>
               </button>
+            </div>
+
+            <div className="mt-4 pt-4 border-t border-white/10">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-white/70 text-xs font-medium uppercase tracking-wider">蓝图管理</div>
+                <button
+                  onClick={() => setShowBlueprintPanel(!showBlueprintPanel)}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs transition-all duration-200 ${
+                    showBlueprintPanel
+                      ? 'bg-indigo-500/30 border border-indigo-400/40 text-indigo-200'
+                      : 'bg-white/5 border border-white/10 text-white/60 hover:text-white/80 hover:bg-white/10'
+                  }`}
+                >
+                  {showBlueprintPanel ? <X className="w-3 h-3" /> : <FolderOpen className="w-3 h-3" />}
+                  {showBlueprintPanel ? '收起' : '展开'}
+                </button>
+              </div>
+
+              {showBlueprintPanel && (
+                <div className="space-y-3">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={blueprintName}
+                      onChange={(e) => setBlueprintName(e.target.value)}
+                      placeholder="输入蓝图名称..."
+                      className="flex-1 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-xs placeholder-white/30 focus:outline-none focus:border-indigo-400/50 focus:bg-white/10 transition-all"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && blueprintName.trim() && totalBlocks > 0) {
+                          saveBlueprint(blueprintName.trim());
+                          setBlueprintName('');
+                        }
+                      }}
+                    />
+                    <button
+                      onClick={() => {
+                        if (blueprintName.trim() && totalBlocks > 0) {
+                          saveBlueprint(blueprintName.trim());
+                          setBlueprintName('');
+                        }
+                      }}
+                      disabled={!blueprintName.trim() || totalBlocks === 0}
+                      className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs transition-all duration-200 ${
+                        blueprintName.trim() && totalBlocks > 0
+                          ? 'bg-gradient-to-r from-indigo-500/30 to-purple-500/30 border border-indigo-400/40 text-indigo-200 hover:from-indigo-500/40 hover:to-purple-500/40'
+                          : 'bg-white/5 border border-white/5 text-white/30 cursor-not-allowed'
+                      }`}
+                    >
+                      <Save className="w-3 h-3" />
+                      保存
+                    </button>
+                  </div>
+
+                  {totalBlocks === 0 && (
+                    <div className="p-2 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+                      <div className="text-yellow-300/80 text-xs">场景中没有方块，无法保存</div>
+                    </div>
+                  )}
+
+                  {blueprints.length > 0 && (
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                      {blueprints.map((bp) => (
+                        <div
+                          key={bp.id}
+                          className="flex items-center gap-2 p-2 rounded-lg bg-white/5 border border-white/5 hover:bg-white/10 hover:border-white/15 transition-all duration-200 group"
+                        >
+                          <div className="w-7 h-7 rounded-md bg-gradient-to-br from-indigo-500/40 to-purple-500/40 flex items-center justify-center flex-shrink-0">
+                            <Building2 className="w-3.5 h-3.5 text-indigo-300" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-white text-xs font-medium truncate">{bp.name}</div>
+                            <div className="text-white/40 text-[10px]">
+                              {bp.blocks.length}块 · {new Date(bp.createdAt).toLocaleDateString()}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => loadBlueprint(bp.id)}
+                            className="p-1.5 rounded-md bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/30 transition-all"
+                            title="加载蓝图"
+                          >
+                            <FolderOpen className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={() => deleteBlueprint(bp.id)}
+                            className="p-1.5 rounded-md bg-red-500/20 border border-red-500/30 text-red-300 hover:bg-red-500/30 transition-all"
+                            title="删除蓝图"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {blueprints.length === 0 && (
+                    <div className="p-3 rounded-lg bg-white/5 border border-white/5 text-center">
+                      <div className="text-white/30 text-xs">暂无已保存的蓝图</div>
+                      <div className="text-white/20 text-[10px] mt-1">建造后输入名称保存</div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="mt-4 pt-4 border-t border-white/10">
@@ -1486,6 +1597,27 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild, onRe
                 <div className="text-white/50 text-xs">坚固的中世纪堡垒</div>
               </div>
             </button>
+            {blueprints.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="text-white/50 text-[10px] uppercase tracking-wider px-1">加载蓝图</div>
+                {blueprints.map((bp) => (
+                  <button
+                    key={bp.id}
+                    onClick={() => onLoadBlueprint(bp)}
+                    className="w-full flex items-center gap-2 p-2.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all duration-200 group"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500/40 to-purple-500/40 flex items-center justify-center flex-shrink-0">
+                      <Building2 className="w-4 h-4 text-indigo-300" />
+                    </div>
+                    <div className="flex-1 min-w-0 text-left">
+                      <div className="text-white text-xs font-medium truncate">{bp.name}</div>
+                      <div className="text-white/40 text-[10px]">{bp.blocks.length}块</div>
+                    </div>
+                    <FolderOpen className="w-3.5 h-3.5 text-white/30 group-hover:text-white/60" />
+                  </button>
+                ))}
+              </div>
+            )}
             <button
               onClick={onReset}
               className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-red-500/20 to-pink-500/20 border border-red-500/30 hover:from-red-500/30 hover:to-pink-500/30 transition-all duration-200 group"
