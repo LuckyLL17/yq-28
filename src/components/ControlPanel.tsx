@@ -183,7 +183,7 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild, onRe
     return (
       <div className="fixed inset-0 pointer-events-none z-50">
         <div className="absolute top-4 left-4 pointer-events-auto">
-          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl">
+          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl max-h-[calc(100vh-2rem)] overflow-y-auto">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center">
                 <Bot className="w-6 h-6 text-white" />
@@ -305,7 +305,7 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild, onRe
         </div>
 
         <div className="absolute top-4 right-4 pointer-events-auto">
-          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl">
+          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl max-h-[calc(100vh-2rem)] overflow-y-auto">
             <div className="text-white/70 text-xs mb-3 font-medium uppercase tracking-wider">模式切换</div>
             <div className="flex flex-col gap-2">
               <button
@@ -383,7 +383,7 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild, onRe
         </div>
 
         <div className="absolute bottom-4 left-4 pointer-events-auto">
-          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl">
+          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl max-h-[calc(100vh-2rem)] overflow-y-auto">
             <div className="flex items-center gap-4">
               <div>
                 <div className="text-white/50 text-xs uppercase tracking-wider">场景方块</div>
@@ -413,7 +413,7 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild, onRe
         </div>
 
         <div className="absolute bottom-4 right-4 pointer-events-auto">
-          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl max-w-xs">
+          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl max-w-xs max-h-[calc(100vh-2rem)] overflow-y-auto">
             <div className="text-white/70 text-xs mb-2 font-medium uppercase tracking-wider">操作提示</div>
             <div className="space-y-2 text-sm">
               <div className="flex items-center gap-2 text-white/80">
@@ -456,7 +456,7 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild, onRe
     return (
       <div className="fixed inset-0 pointer-events-none z-50">
         <div className="absolute top-4 left-4 pointer-events-auto">
-          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl">
+          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl max-h-[calc(100vh-2rem)] overflow-y-auto">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
                 <Wrench className="w-6 h-6 text-white" />
@@ -588,7 +588,7 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild, onRe
         </div>
 
         <div className="absolute top-4 right-4 pointer-events-auto">
-          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl">
+          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl max-h-[calc(100vh-2rem)] overflow-y-auto">
             <div className="flex flex-col gap-2">
               <button
                 onClick={() => setGameMode('destroy')}
@@ -677,7 +677,7 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild, onRe
         </div>
 
         <div className="absolute bottom-4 left-4 pointer-events-auto">
-          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl">
+          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl max-h-[calc(100vh-2rem)] overflow-y-auto">
             <div className="flex items-center gap-4">
               <div>
                 <div className="text-white/50 text-xs uppercase tracking-wider">已放置方块</div>
@@ -701,7 +701,7 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild, onRe
         </div>
 
         <div className="absolute bottom-4 right-4 pointer-events-auto">
-          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl max-w-xs">
+          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl max-w-xs max-h-[calc(100vh-2rem)] overflow-y-auto">
             <div className="text-white/70 text-xs mb-2 font-medium uppercase tracking-wider">操作提示</div>
             <div className="space-y-2 text-sm">
               {buildTool === 'place' && (
@@ -811,7 +811,7 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild, onRe
     return (
       <div className="fixed inset-0 pointer-events-none z-50">
         <div className="absolute top-4 left-4 pointer-events-auto">
-          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl">
+          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl max-h-[calc(100vh-2rem)] overflow-y-auto">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
                 <FlaskConical className="w-6 h-6 text-white" />
@@ -995,7 +995,7 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild, onRe
         </div>
 
         <div className="absolute top-4 right-4 pointer-events-auto">
-          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl">
+          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl max-h-[calc(100vh-2rem)] overflow-y-auto">
             <div className="text-white/70 text-xs mb-3 font-medium uppercase tracking-wider">模式切换</div>
             <div className="flex flex-col gap-2">
               <button
@@ -1073,7 +1073,7 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild, onRe
         </div>
 
         <div className="absolute bottom-4 left-4 pointer-events-auto">
-          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl">
+          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl max-h-[calc(100vh-2rem)] overflow-y-auto">
             <div className="flex items-center gap-4">
               <div>
                 <div className="text-white/50 text-xs uppercase tracking-wider">物体数量</div>
@@ -1097,7 +1097,7 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild, onRe
         </div>
 
         <div className="absolute bottom-4 right-4 pointer-events-auto">
-          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl max-w-xs">
+          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl max-w-xs max-h-[calc(100vh-2rem)] overflow-y-auto">
             <div className="text-white/70 text-xs mb-2 font-medium uppercase tracking-wider">操作提示</div>
             <div className="space-y-2 text-sm">
               {labTool === 'placeObject' && (

@@ -52,7 +52,8 @@ export function WeaponSystem({
   const setShootCooldown = useGameStore((s) => s.setShootCooldown);
   const wreckingBallActive = useGameStore((s) => s.wreckingBallActive);
   const setWreckingBallActive = useGameStore((s) => s.setWreckingBallActive);
-  const weaponCustomizations = useGameStore((s) => s.weaponCustomizations);
+  const weaponCustomizationsRef = useRef(useGameStore.getState().weaponCustomizations);
+  const lastAppearanceHashRef = useRef<string>('');
 
   const projectilesRef = useRef<Map<string, Projectile>>(new Map());
   const wreckingBallRef = useRef<WreckingBallState | null>(null);
@@ -65,9 +66,49 @@ export function WeaponSystem({
   const lastWeaponRef = useRef<WeaponType | null>(null);
   const wreckingBallId = 'wreckingBall';
 
+  const launcherMatsRef = useRef<{
+    mainBodyMat?: THREE.MeshStandardMaterial;
+    barrelMat?: THREE.MeshStandardMaterial;
+    muzzleMat?: THREE.MeshStandardMaterial;
+    indicatorMat?: THREE.MeshStandardMaterial;
+    muzzleFlashMat?: THREE.MeshBasicMaterial;
+  }>({});
+
+  const updateLauncherAppearance = useCallback(() => {
+    if (!launcherRef.current) return;
+    const state = useGameStore.getState();
+    const currentWeapon = state.weapon;
+    if (currentWeapon === 'wreckingBall' || currentWeapon === 'sprayPaint') return;
+    const custom = state.weaponCustomizations[currentWeapon];
+    const appearance = custom.appearance;
+    const mats = launcherMatsRef.current;
+    const glowIntensity = appearance.effectType !== 'none' ? 0.15 : 0;
+
+    if (mats.mainBodyMat) {
+      mats.mainBodyMat.color.set(appearance.mainColor);
+      mats.mainBodyMat.emissive.set(appearance.glowColor);
+      mats.mainBodyMat.emissiveIntensity = glowIntensity;
+    }
+    if (mats.barrelMat) {
+      mats.barrelMat.color.set(appearance.mainColor);
+    }
+    if (mats.muzzleMat) {
+      mats.muzzleMat.color.set(appearance.mainColor);
+    }
+    if (mats.indicatorMat) {
+      mats.indicatorMat.color.set(appearance.glowColor);
+      mats.indicatorMat.emissive.set(appearance.glowColor);
+    }
+    if (mats.muzzleFlashMat) {
+      mats.muzzleFlashMat.color.set(appearance.trailColor);
+    }
+  }, []);
+
   const createLauncher = useCallback((currentWeapon: WeaponType) => {
     if (launcherRef.current) {
-      scene.remove(launcherRef.current);
+      if (launcherRef.current.parent) {
+        launcherRef.current.parent.remove(launcherRef.current);
+      }
       launcherRef.current.traverse((child) => {
         if (child instanceof THREE.Mesh) {
           child.geometry.dispose();
@@ -79,12 +120,14 @@ export function WeaponSystem({
         }
       });
       launcherRef.current = null;
+      launcherMatsRef.current = {};
     }
 
     if (currentWeapon === 'wreckingBall') return;
 
     const custom = useGameStore.getState().weaponCustomizations[currentWeapon];
     const appearance = custom.appearance;
+    const glowIntensity = appearance.effectType !== 'none' ? 0.15 : 0;
 
     const group = new THREE.Group();
 
@@ -93,12 +136,13 @@ export function WeaponSystem({
       color: appearance.mainColor,
       metalness: 0.9,
       roughness: 0.2,
-      emissive: appearance.effectType !== 'none' ? appearance.glowColor : '#000000',
-      emissiveIntensity: appearance.effectType !== 'none' ? 0.15 : 0,
+      emissive: appearance.glowColor,
+      emissiveIntensity: glowIntensity,
     });
     const mainBody = new THREE.Mesh(mainBodyGeo, mainBodyMat);
     mainBody.position.z = -0.1;
     group.add(mainBody);
+    launcherMatsRef.current.mainBodyMat = mainBodyMat;
 
     const barrelGeo = new THREE.CylinderGeometry(0.08, 0.06, 0.3, 16);
     const barrelMat = new THREE.MeshStandardMaterial({
@@ -110,6 +154,7 @@ export function WeaponSystem({
     barrel.rotation.x = -Math.PI / 2;
     barrel.position.z = -0.35;
     group.add(barrel);
+    launcherMatsRef.current.barrelMat = barrelMat;
 
     const muzzleGeo = new THREE.CylinderGeometry(0.1, 0.08, 0.05, 16);
     const muzzleMat = new THREE.MeshStandardMaterial({
@@ -121,6 +166,7 @@ export function WeaponSystem({
     muzzle.rotation.x = -Math.PI / 2;
     muzzle.position.z = -0.55;
     group.add(muzzle);
+    launcherMatsRef.current.muzzleMat = muzzleMat;
 
     const gripGeo = new THREE.BoxGeometry(0.12, 0.2, 0.15);
     const gripMat = new THREE.MeshStandardMaterial({
@@ -158,6 +204,7 @@ export function WeaponSystem({
       indicator.position.y = 0.12;
       indicator.position.z = 0.1;
       group.add(indicator);
+      launcherMatsRef.current.indicatorMat = indicatorMat;
     }
 
     const muzzleFlashGeo = new THREE.SphereGeometry(0.12, 16, 16);
@@ -170,13 +217,14 @@ export function WeaponSystem({
     muzzleFlash.position.z = -0.65;
     muzzleFlash.name = 'muzzleFlash';
     group.add(muzzleFlash);
+    launcherMatsRef.current.muzzleFlashMat = muzzleFlashMat;
 
     group.position.set(0.3, -0.2, -0.5);
 
     camera.add(group);
 
     launcherRef.current = group;
-  }, [camera, scene]);
+  }, [camera]);
 
   const createWreckingBall = useCallback(() => {
     if (wreckingBallRef.current) return;
@@ -507,7 +555,9 @@ export function WeaponSystem({
       if (weapon !== 'wreckingBall') {
         createLauncher(weapon);
       } else if (launcherRef.current) {
-        scene.remove(launcherRef.current);
+        if (launcherRef.current.parent) {
+          launcherRef.current.parent.remove(launcherRef.current);
+        }
         launcherRef.current.traverse((child) => {
           if (child instanceof THREE.Mesh) {
             child.geometry.dispose();
@@ -519,11 +569,12 @@ export function WeaponSystem({
           }
         });
         launcherRef.current = null;
+        launcherMatsRef.current = {};
       }
-    } else if (weapon !== 'wreckingBall' && weapon !== 'sprayPaint') {
-      createLauncher(weapon);
+    } else {
+      updateLauncherAppearance();
     }
-  }, [weapon, weaponCustomizations, createLauncher, scene]);
+  }, [weapon, createLauncher, updateLauncherAppearance]);
 
   useEffect(() => {
     if (rebuildCounter === 0) return;
@@ -637,6 +688,16 @@ export function WeaponSystem({
   }, [weapon, shootCooldown, fireSteelBall, fireExplosive, setShootCooldown]);
 
   useFrame((_, delta) => {
+    weaponCustomizationsRef.current = useGameStore.getState().weaponCustomizations;
+    if (weapon !== 'wreckingBall') {
+      const curCustom = weaponCustomizationsRef.current[weapon];
+      const newHash = `${curCustom.appearance.mainColor}|${curCustom.appearance.trailColor}|${curCustom.appearance.glowColor}|${curCustom.appearance.effectType}`;
+      if (newHash !== lastAppearanceHashRef.current) {
+        lastAppearanceHashRef.current = newHash;
+        updateLauncherAppearance();
+      }
+    }
+
     if (cooldownTimerRef.current > 0) {
       cooldownTimerRef.current -= delta;
       if (cooldownTimerRef.current <= 0) {

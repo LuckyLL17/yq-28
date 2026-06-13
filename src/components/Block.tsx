@@ -214,7 +214,8 @@ export function Block({
 
     body.addEventListener('collide', (event: any) => {
       const age = performance.now() - creationTime;
-      if (age < 1000) return;
+      if (age < 2000) return;
+      if ((body as any).isSleeping && (body as any).isSleeping()) return;
 
       const otherBody = event.body;
       const otherUserData = (otherBody as any).userData;
@@ -224,6 +225,7 @@ export function Block({
         otherUserData?.isDebris === true;
 
       if (!isWeaponImpact) return;
+      if ((otherBody as any).isSleeping && (otherBody as any).isSleeping()) return;
 
       const impactVelocity = event.contact.getImpactVelocityAlongNormal();
       if (impactVelocity > 2) {
