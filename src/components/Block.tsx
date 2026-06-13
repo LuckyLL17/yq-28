@@ -53,7 +53,6 @@ export function Block({
   const getBlockSprayCanvas = useGameStore((s) => s.getBlockSprayCanvas);
   const getBlockSprayPoints = useGameStore((s) => s.getBlockSprayPoints);
 
-  const audioAnalysis = useGameStore((s) => s.audioAnalysis);
   const audioEnabled = useGameStore((s) => s.audioEnabled);
   const audioEffectsConfig = useGameStore((s) => s.audioEffectsConfig);
   const gravityDirection = useGameStore((s) => s.gravityDirection);
@@ -262,6 +261,7 @@ export function Block({
 
     const body = getPhysicsBody(id);
     if (body && meshRef.current && !destroyed) {
+      const audioAnalysis = useGameStore.getState().audioAnalysis;
       if (audioEnabled && audioAnalysis.volume > 0.01) {
         const { shakeIntensity } = audioEffectsConfig;
         const { bass, mid, treble, beatDetected } = audioAnalysis;
@@ -304,6 +304,7 @@ export function Block({
     }
 
     if (materialRef.current) {
+      const audioAnalysis = useGameStore.getState().audioAnalysis;
       if (audioEnabled && audioAnalysis.volume > 0.01) {
         const { glowIntensity, colorMode } = audioEffectsConfig;
         const { bass, mid, treble, beatDetected } = audioAnalysis;
@@ -373,8 +374,10 @@ export function Block({
     }
 
     if (audioEnabled && audioEffectsConfig.enableCollapse && !destroyed && body) {
+      const age = performance.now() - creationTime;
+      if (age >= 3000 && !((body as any).isSleeping && (body as any).isSleeping())) {
       collapseCooldown.current = Math.max(0, collapseCooldown.current - delta);
-      const { bass, treble, beatDetected, volume } = audioAnalysis;
+      const { bass, treble, beatDetected, volume } = useGameStore.getState().audioAnalysis;
       const { collapseThreshold } = audioEffectsConfig;
 
       const collapseEnergy = bass * 0.5 + volume * 0.3 + (beatDetected ? 0.4 : 0);
@@ -427,6 +430,7 @@ export function Block({
             );
           }
         }
+      }
       }
     }
 

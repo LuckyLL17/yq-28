@@ -153,12 +153,10 @@ export function GameScene() {
   const gameMode = useGameStore((s) => s.gameMode);
   const gravityDirection = useGameStore((s) => s.gravityDirection);
 
-  const {
-    blocks,
-    addBlocks,
-    resetGame,
-    setWreckingBallActive,
-  } = useGameStore();
+  const blocks = useGameStore((s) => s.blocks);
+  const addBlocks = useGameStore((s) => s.addBlocks);
+  const resetGame = useGameStore((s) => s.resetGame);
+  const setWreckingBallActive = useGameStore((s) => s.setWreckingBallActive);
 
   const {
     addBody,
