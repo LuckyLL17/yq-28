@@ -272,7 +272,10 @@ export function WeaponSystem({
       chainPoints.push(new THREE.Vector3());
     }
 
-    const aimLineGeo = new THREE.BufferGeometry();
+    const aimLineGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(0, 0, -1),
+    ]);
     const aimLineMat = new THREE.LineDashedMaterial({
       color: '#ff6600',
       linewidth: 3,

@@ -181,7 +181,14 @@ function ConstraintVisualization({ constraint, bodyA, bodyB }: {
   return (
     <group>
       <line ref={lineRef as any}>
-        <bufferGeometry />
+        <bufferGeometry>
+          <bufferAttribute
+            attach="attributes-position"
+            count={2}
+            array={new Float32Array(6)}
+            itemSize={3}
+          />
+        </bufferGeometry>
         <lineBasicMaterial color={getColor()} linewidth={2} />
       </line>
       {constraint.type === 'spring' && (

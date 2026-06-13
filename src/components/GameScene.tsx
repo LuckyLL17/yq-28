@@ -174,6 +174,7 @@ export function GameScene() {
   const [buildingGenerated, setBuildingGenerated] = useState(false);
   const [rebuildCounter, setRebuildCounter] = useState(0);
   const initRef = useRef(false);
+  const lastGravityRef = useRef<GravityDirection>(gravityDirection);
   const spawnDebrisRef = useRef<((position: [number, number, number], size: [number, number, number], material: MaterialType, sprayColors?: string[]) => void) | null>(null);
 
   const handleDestroyBlock = useCallback((position: [number, number, number], material: MaterialType) => {
@@ -269,6 +270,7 @@ export function GameScene() {
     setRebuildCounter((c) => c + 1);
 
     const currentGravity = useGameStore.getState().gravityDirection;
+    lastGravityRef.current = currentGravity;
     const buildingBlocks = type === 'building'
       ? generateBuilding({ width: 7, height: 5, depth: 5, blockSize: [1.2, 0.6, 1.2], gravityDirection: currentGravity })
       : generateCastle({ width: 9, height: 4, depth: 7, blockSize: [1, 0.5, 1], gravityDirection: currentGravity });
@@ -286,6 +288,7 @@ export function GameScene() {
     setRebuildCounter((c) => c + 1);
 
     const currentGravity = useGameStore.getState().gravityDirection;
+    lastGravityRef.current = currentGravity;
     const buildingBlocks = generateBuilding({ width: 7, height: 5, depth: 5, blockSize: [1.2, 0.6, 1.2], gravityDirection: currentGravity });
 
     resetGame();
@@ -351,6 +354,7 @@ export function GameScene() {
     if (gameMode === 'destroy' && !initRef.current) {
       initRef.current = true;
       const currentGravity = useGameStore.getState().gravityDirection;
+      lastGravityRef.current = currentGravity;
       const buildingBlocks = generateBuilding({ width: 7, height: 5, depth: 5, blockSize: [1.2, 0.6, 1.2], gravityDirection: currentGravity });
       addBlocks(buildingBlocks);
       setBuildingGenerated(true);
@@ -366,7 +370,8 @@ export function GameScene() {
   }, [gameMode, resetGame, handleSpawnRoboticArmBlocks]);
 
   useEffect(() => {
-    if (gameMode === 'destroy' && buildingGenerated) {
+    if (gameMode === 'destroy' && buildingGenerated && gravityDirection !== lastGravityRef.current) {
+      lastGravityRef.current = gravityDirection;
       initRef.current = false;
       setWreckingBallActive(false);
       setRebuildCounter((c) => c + 1);

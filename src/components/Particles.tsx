@@ -17,9 +17,19 @@ export function Particles({ maxParticles = 500 }: ParticlesProps) {
   const addParticle = useGameStore((s) => s.addParticle);
   const gravityDirection = useGameStore((s) => s.gravityDirection);
 
-  const positions = useMemo(() => new Float32Array(maxParticles * 3), [maxParticles]);
+  const positions = useMemo(() => {
+    const arr = new Float32Array(maxParticles * 3);
+    for (let i = 0; i < maxParticles; i++) {
+      arr[i * 3 + 1] = -1000;
+    }
+    return arr;
+  }, [maxParticles]);
   const colors = useMemo(() => new Float32Array(maxParticles * 3), [maxParticles]);
-  const sizes = useMemo(() => new Float32Array(maxParticles), [maxParticles]);
+  const sizes = useMemo(() => {
+    const arr = new Float32Array(maxParticles);
+    arr.fill(0.01);
+    return arr;
+  }, [maxParticles]);
   const opacities = useMemo(() => new Float32Array(maxParticles), [maxParticles]);
 
   const pointsRef = useRef<THREE.Points>(null);
@@ -42,7 +52,8 @@ export function Particles({ maxParticles = 500 }: ParticlesProps) {
       const properties = materialProperties[material];
       const baseColor = new THREE.Color(properties.color);
       const gravVec = getGravityVector(useGameStore.getState().gravityDirection);
-      const gravNorm = gravVec.clone().normalize();
+      const gravLen = gravVec.length();
+      const gravNorm = gravLen > 0.001 ? gravVec.clone().divideScalar(gravLen) : new THREE.Vector3(0, -1, 0);
 
       for (let i = 0; i < count; i++) {
         if (activeCount.current >= maxParticles) break;
@@ -118,6 +129,15 @@ export function Particles({ maxParticles = 500 }: ParticlesProps) {
       data.position.x += data.velocity.x * delta;
       data.position.y += data.velocity.y * delta;
       data.position.z += data.velocity.z * delta;
+
+      if (
+        !isFinite(data.position.x) ||
+        !isFinite(data.position.y) ||
+        !isFinite(data.position.z)
+      ) {
+        idsToRemove.push(id);
+        return;
+      }
 
       const boundaryOffset = 50;
       switch (gravityDirection) {
@@ -207,7 +227,13 @@ export function Particles({ maxParticles = 500 }: ParticlesProps) {
       geometryRef.current.attributes.color.needsUpdate = true;
       geometryRef.current.attributes.size.needsUpdate = true;
       geometryRef.current.attributes.opacity.needsUpdate = true;
-      geometryRef.current.setDrawRange(0, Math.min(activeCount.current, maxParticles));
+      const drawCount = Math.min(Math.max(activeCount.current, 0), maxParticles);
+      geometryRef.current.setDrawRange(0, drawCount);
+      geometryRef.current.computeBoundingSphere();
+    }
+
+    if (pointsRef.current) {
+      pointsRef.current.visible = activeCount.current > 0;
     }
   });
 
