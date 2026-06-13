@@ -2,7 +2,7 @@ import { useRef, useEffect, useCallback } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { useGameStore, WeaponType, GRAVITY_VECTORS } from '@/store/gameStore';
+import { useGameStore, WeaponType, GRAVITY_VECTORS, UPGRADE_MULTIPLIERS } from '@/store/gameStore';
 
 interface WeaponSystemProps {
   addPhysicsBody: (id: string, body: CANNON.Body) => void;
@@ -52,6 +52,7 @@ export function WeaponSystem({
   const setShootCooldown = useGameStore((s) => s.setShootCooldown);
   const wreckingBallActive = useGameStore((s) => s.wreckingBallActive);
   const setWreckingBallActive = useGameStore((s) => s.setWreckingBallActive);
+  const weaponCustomizations = useGameStore((s) => s.weaponCustomizations);
 
   const projectilesRef = useRef<Map<string, Projectile>>(new Map());
   const wreckingBallRef = useRef<WreckingBallState | null>(null);
@@ -82,13 +83,18 @@ export function WeaponSystem({
 
     if (currentWeapon === 'wreckingBall') return;
 
+    const custom = useGameStore.getState().weaponCustomizations[currentWeapon];
+    const appearance = custom.appearance;
+
     const group = new THREE.Group();
 
     const mainBodyGeo = new THREE.BoxGeometry(0.15, 0.15, 0.4);
     const mainBodyMat = new THREE.MeshStandardMaterial({
-      color: '#3a3a3a',
+      color: appearance.mainColor,
       metalness: 0.9,
       roughness: 0.2,
+      emissive: appearance.effectType !== 'none' ? appearance.glowColor : '#000000',
+      emissiveIntensity: appearance.effectType !== 'none' ? 0.15 : 0,
     });
     const mainBody = new THREE.Mesh(mainBodyGeo, mainBodyMat);
     mainBody.position.z = -0.1;
@@ -96,7 +102,7 @@ export function WeaponSystem({
 
     const barrelGeo = new THREE.CylinderGeometry(0.08, 0.06, 0.3, 16);
     const barrelMat = new THREE.MeshStandardMaterial({
-      color: '#2a2a2a',
+      color: appearance.mainColor,
       metalness: 0.95,
       roughness: 0.1,
     });
@@ -107,7 +113,7 @@ export function WeaponSystem({
 
     const muzzleGeo = new THREE.CylinderGeometry(0.1, 0.08, 0.05, 16);
     const muzzleMat = new THREE.MeshStandardMaterial({
-      color: '#1a1a1a',
+      color: appearance.mainColor,
       metalness: 0.9,
       roughness: 0.1,
     });
@@ -142,8 +148,8 @@ export function WeaponSystem({
     if (currentWeapon === 'explosive') {
       const indicatorGeo = new THREE.BoxGeometry(0.08, 0.08, 0.08);
       const indicatorMat = new THREE.MeshStandardMaterial({
-        color: '#ff3300',
-        emissive: '#ff0000',
+        color: appearance.glowColor,
+        emissive: appearance.glowColor,
         emissiveIntensity: 0.5,
         metalness: 0.5,
         roughness: 0.5,
@@ -156,7 +162,7 @@ export function WeaponSystem({
 
     const muzzleFlashGeo = new THREE.SphereGeometry(0.12, 16, 16);
     const muzzleFlashMat = new THREE.MeshBasicMaterial({
-      color: currentWeapon === 'explosive' ? '#ff6600' : '#00ffff',
+      color: appearance.trailColor,
       transparent: true,
       opacity: 0,
     });
@@ -204,8 +210,13 @@ export function WeaponSystem({
     });
     addPhysicsBody('wreckingAnchor', anchorBody);
 
-    const ballMass = 500;
-    const ballRadius = 1.2;
+    const custom = useGameStore.getState().weaponCustomizations.wreckingBall;
+    const dmgMult = UPGRADE_MULTIPLIERS.damage(custom.upgrades.damage);
+    const radMult = UPGRADE_MULTIPLIERS.radius(custom.upgrades.radius);
+    const baseMass = 500;
+    const ballMass = baseMass * dmgMult;
+    const baseRadius = 1.2;
+    const ballRadius = baseRadius * Math.pow(radMult, 0.4);
     const ballBody = new CANNON.Body({
       mass: ballMass,
       shape: new CANNON.Sphere(ballRadius),
@@ -221,16 +232,20 @@ export function WeaponSystem({
     ballBody.sleep();
     addPhysicsBody(wreckingBallId, ballBody);
 
-    const constraint = new CANNON.DistanceConstraint(anchorBody, ballBody, 3);
+    const chainLen = 3 * UPGRADE_MULTIPLIERS.speed(custom.upgrades.speed);
+    const constraint = new CANNON.DistanceConstraint(anchorBody, ballBody, chainLen);
     const constraintAdded = addConstraint(constraint);
 
     const group = new THREE.Group();
 
+    const appearance = custom.appearance;
     const ballGeometry = new THREE.SphereGeometry(ballRadius, 32, 32);
     const ballMaterial = new THREE.MeshStandardMaterial({
-      color: '#444444',
+      color: appearance.mainColor,
       metalness: 0.9,
       roughness: 0.3,
+      emissive: appearance.glowColor,
+      emissiveIntensity: appearance.effectType !== 'none' ? 0.3 : 0,
     });
     const ballMesh = new THREE.Mesh(ballGeometry, ballMaterial);
     ballMesh.castShadow = true;
@@ -239,13 +254,16 @@ export function WeaponSystem({
 
     const spikeGeo = new THREE.ConeGeometry(0.2, 0.6, 8);
     const spikeMat = new THREE.MeshStandardMaterial({
-      color: '#666666',
+      color: appearance.mainColor,
       metalness: 0.9,
       roughness: 0.2,
+      emissive: appearance.glowColor,
+      emissiveIntensity: appearance.effectType !== 'none' ? 0.2 : 0,
     });
-    for (let i = 0; i < 8; i++) {
+    const spikeCount = 8 + Math.floor((custom.upgrades.damage - 1) * 2);
+    for (let i = 0; i < spikeCount; i++) {
       const spike = new THREE.Mesh(spikeGeo, spikeMat);
-      const angle = (i / 8) * Math.PI * 2;
+      const angle = (i / spikeCount) * Math.PI * 2;
       spike.position.set(
         Math.cos(angle) * ballRadius * 0.85,
         (Math.random() - 0.5) * ballRadius * 0.6,
@@ -260,7 +278,7 @@ export function WeaponSystem({
     const chainSegments = 15;
     const chainGeometry = new THREE.CylinderGeometry(0.08, 0.08, 1, 8);
     const chainMaterial = new THREE.MeshStandardMaterial({
-      color: '#666666',
+      color: appearance.trailColor,
       metalness: 0.8,
       roughness: 0.4,
     });
@@ -277,7 +295,7 @@ export function WeaponSystem({
       new THREE.Vector3(0, 0, -1),
     ]);
     const aimLineMat = new THREE.LineDashedMaterial({
-      color: '#ff6600',
+      color: appearance.trailColor,
       linewidth: 3,
       dashSize: 0.3,
       gapSize: 0.15,
@@ -344,14 +362,22 @@ export function WeaponSystem({
     camera.getWorldPosition(startPos);
     startPos.add(direction.clone().multiplyScalar(2));
 
-    const ballRadius = 0.25;
-    const ballMass = 15;
+    const custom = useGameStore.getState().weaponCustomizations.steelBall;
+    const dmgMult = UPGRADE_MULTIPLIERS.damage(custom.upgrades.damage);
+    const spdMult = UPGRADE_MULTIPLIERS.speed(custom.upgrades.speed);
+    const radMult = UPGRADE_MULTIPLIERS.radius(custom.upgrades.radius);
 
+    const ballRadius = 0.25 * Math.pow(radMult, 0.3);
+    const ballMass = 15 * dmgMult;
+
+    const appearance = custom.appearance;
     const geometry = new THREE.SphereGeometry(ballRadius, 24, 24);
     const material = new THREE.MeshStandardMaterial({
-      color: '#888888',
+      color: appearance.mainColor,
       metalness: 0.95,
       roughness: 0.15,
+      emissive: appearance.glowColor,
+      emissiveIntensity: appearance.effectType !== 'none' ? 0.4 : 0,
     });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.castShadow = true;
@@ -360,7 +386,7 @@ export function WeaponSystem({
 
     const trailGeo = new THREE.SphereGeometry(ballRadius * 0.6, 12, 12);
     const trailMat = new THREE.MeshBasicMaterial({
-      color: '#00ffff',
+      color: appearance.trailColor,
       transparent: true,
       opacity: 0.6,
     });
@@ -376,7 +402,7 @@ export function WeaponSystem({
     });
     (body as any).userData = { isProjectile: true };
 
-    const speed = 55;
+    const speed = 55 * spdMult;
     body.velocity.set(
       direction.x * speed,
       direction.y * speed,
@@ -412,14 +438,20 @@ export function WeaponSystem({
     camera.getWorldPosition(startPos);
     startPos.add(direction.clone().multiplyScalar(2));
 
-    const ballRadius = 0.2;
-    const ballMass = 5;
+    const custom = useGameStore.getState().weaponCustomizations.explosive;
+    const dmgMult = UPGRADE_MULTIPLIERS.damage(custom.upgrades.damage);
+    const spdMult = UPGRADE_MULTIPLIERS.speed(custom.upgrades.speed);
+    const radMult = UPGRADE_MULTIPLIERS.radius(custom.upgrades.radius);
 
+    const ballRadius = 0.2 * Math.pow(radMult, 0.3);
+    const ballMass = 5 * dmgMult;
+
+    const appearance = custom.appearance;
     const geometry = new THREE.SphereGeometry(ballRadius, 20, 20);
     const material = new THREE.MeshStandardMaterial({
-      color: '#ff3300',
-      emissive: '#ff0000',
-      emissiveIntensity: 0.5,
+      color: appearance.mainColor,
+      emissive: appearance.glowColor,
+      emissiveIntensity: appearance.effectType !== 'none' ? 0.7 : 0.5,
       metalness: 0.5,
       roughness: 0.5,
     });
@@ -431,7 +463,7 @@ export function WeaponSystem({
     const fuseGeo = new THREE.CylinderGeometry(0.03, 0.02, 0.15, 8);
     const fuseMat = new THREE.MeshStandardMaterial({
       color: '#333333',
-      emissive: '#ff6600',
+      emissive: appearance.trailColor,
       emissiveIntensity: 1,
     });
     const fuse = new THREE.Mesh(fuseGeo, fuseMat);
@@ -447,7 +479,7 @@ export function WeaponSystem({
     });
     (body as any).userData = { isProjectile: true };
 
-    const speed = 35;
+    const speed = 35 * spdMult;
     body.velocity.set(
       direction.x * speed,
       direction.y * speed + 5,
@@ -488,8 +520,10 @@ export function WeaponSystem({
         });
         launcherRef.current = null;
       }
+    } else if (weapon !== 'wreckingBall' && weapon !== 'sprayPaint') {
+      createLauncher(weapon);
     }
-  }, [weapon, createLauncher, scene]);
+  }, [weapon, weaponCustomizations, createLauncher, scene]);
 
   useEffect(() => {
     if (rebuildCounter === 0) return;
@@ -573,9 +607,12 @@ export function WeaponSystem({
         const gravVec = GRAVITY_VECTORS[gravityDir];
         const antiGrav = new THREE.Vector3(-gravVec[0], -gravVec[1], -gravVec[2]).normalize();
 
-        const impulseX = dx * 15 + antiGrav.x * 50;
-        const impulseZ = -dy * 12 + antiGrav.z * 50;
-        const impulseY = antiGrav.y * 100 + Math.max(0, -dy * 8);
+        const custom = useGameStore.getState().weaponCustomizations.wreckingBall;
+        const spdMult = UPGRADE_MULTIPLIERS.speed(custom.upgrades.speed);
+
+        const impulseX = dx * 15 * spdMult + antiGrav.x * 50;
+        const impulseZ = -dy * 12 * spdMult + antiGrav.z * 50;
+        const impulseY = antiGrav.y * 100 + Math.max(0, -dy * 8 * spdMult);
 
         wreckingBallRef.current.ballBody.wakeUp();
         wreckingBallRef.current.ballBody.applyImpulse(
@@ -681,6 +718,15 @@ export function WeaponSystem({
         const hue = (performance.now() * 0.001) % 1;
         (aimLine.material as THREE.LineDashedMaterial).color.setHSL(hue, 1, 0.6);
       }
+
+      if (wreckingBallRef.current.ballMesh.material instanceof THREE.MeshStandardMaterial) {
+        const custom = useGameStore.getState().weaponCustomizations.wreckingBall;
+        if (custom.appearance.effectType !== 'none') {
+          const effectIntensity = 0.2 + (custom.upgrades.damage - 1) * 0.08;
+          wreckingBallRef.current.ballMesh.material.emissiveIntensity =
+            effectIntensity * (0.6 + Math.sin(performance.now() * 0.005) * 0.4);
+        }
+      }
     }
 
     const projectilesToRemove: string[] = [];
@@ -707,19 +753,30 @@ export function WeaponSystem({
           trail.material.opacity = Math.min(1, body.velocity.length() / 30) * 0.8;
           trail.scale.setScalar(0.5 + body.velocity.length() / 60);
         }
+
+        const custom = useGameStore.getState().weaponCustomizations.steelBall;
+        if (custom.appearance.effectType !== 'none') {
+          const effectIntensity = 0.3 + (custom.upgrades.damage - 1) * 0.1;
+          if (projectile.mesh.material instanceof THREE.MeshStandardMaterial) {
+            projectile.mesh.material.emissiveIntensity = effectIntensity * (0.5 + Math.sin(performance.now() * 0.01) * 0.5);
+          }
+        }
       }
 
       if (projectile.type === 'explosive' && !projectile.exploded) {
         const impactVelocity = body.velocity.length();
         if (impactVelocity < 8 && projectile.life < 9) {
           projectile.exploded = true;
+          const custom = useGameStore.getState().weaponCustomizations.explosive;
+          const radMult = UPGRADE_MULTIPLIERS.radius(custom.upgrades.radius);
+          const dmgMult = UPGRADE_MULTIPLIERS.damage(custom.upgrades.damage);
           const pos: [number, number, number] = [
             body.position.x,
             body.position.y,
             body.position.z,
           ];
-          applyExplosion(pos, 8, 15000);
-          onExplosion(pos, 8);
+          applyExplosion(pos, 8 * radMult, 15000 * dmgMult);
+          onExplosion(pos, 8 * radMult);
           projectile.life = 0.1;
         }
 

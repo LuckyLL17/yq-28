@@ -2,6 +2,30 @@ import { create } from 'zustand';
 import * as CANNON from 'cannon-es';
 
 export type WeaponType = 'wreckingBall' | 'steelBall' | 'explosive' | 'sprayPaint';
+
+export type WeaponUpgradeKey = 'damage' | 'speed' | 'radius';
+
+export interface WeaponUpgradeLevels {
+  damage: number;
+  speed: number;
+  radius: number;
+}
+
+export type WeaponAppearanceKey = 'mainColor' | 'trailColor' | 'glowColor' | 'effectType';
+
+export type WeaponEffectType = 'none' | 'fire' | 'electric' | 'rainbow' | 'shadow';
+
+export interface WeaponAppearance {
+  mainColor: string;
+  trailColor: string;
+  glowColor: string;
+  effectType: WeaponEffectType;
+}
+
+export type WeaponCustomizations = Record<WeaponType, {
+  upgrades: WeaponUpgradeLevels;
+  appearance: WeaponAppearance;
+}>;
 export type MaterialType = 'wood' | 'glass' | 'concrete';
 export type GameMode = 'destroy' | 'build' | 'roboticArm' | 'physicsLab';
 export type BuildTool = 'place' | 'move' | 'rotate' | 'delete' | 'sprayPaint';
@@ -136,6 +160,13 @@ export interface LabConstraintData {
 interface GameState {
   weapon: WeaponType;
   setWeapon: (weapon: WeaponType) => void;
+  weaponCustomizations: WeaponCustomizations;
+  upgradeWeapon: (weapon: WeaponType, key: WeaponUpgradeKey) => void;
+  setWeaponAppearance: (weapon: WeaponType, key: WeaponAppearanceKey, value: string) => void;
+  getWeaponUpgrade: (weapon: WeaponType, key: WeaponUpgradeKey) => number;
+  getWeaponUpgradeMultiplier: (weapon: WeaponType, key: WeaponUpgradeKey) => number;
+  getWeaponAppearance: (weapon: WeaponType) => WeaponAppearance;
+  resetWeaponCustomizations: () => void;
   blocks: Map<string, BlockData>;
   addBlock: (block: BlockData) => void;
   addBlocks: (blocks: BlockData[]) => void;
@@ -224,6 +255,55 @@ interface GameState {
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
+export const WEAPON_DEFAULTS: WeaponCustomizations = {
+  wreckingBall: {
+    upgrades: { damage: 1, speed: 1, radius: 1 },
+    appearance: { mainColor: '#444444', trailColor: '#ff6600', glowColor: '#ff3300', effectType: 'none' },
+  },
+  steelBall: {
+    upgrades: { damage: 1, speed: 1, radius: 1 },
+    appearance: { mainColor: '#888888', trailColor: '#00ffff', glowColor: '#00ccff', effectType: 'none' },
+  },
+  explosive: {
+    upgrades: { damage: 1, speed: 1, radius: 1 },
+    appearance: { mainColor: '#ff3300', trailColor: '#ff6600', glowColor: '#ff0000', effectType: 'none' },
+  },
+  sprayPaint: {
+    upgrades: { damage: 1, speed: 1, radius: 1 },
+    appearance: { mainColor: '#ff0066', trailColor: '#ff33cc', glowColor: '#ff0099', effectType: 'none' },
+  },
+};
+
+export const UPGRADE_MAX_LEVEL = 5;
+
+export const UPGRADE_LABELS: Record<WeaponUpgradeKey, string> = {
+  damage: '威力',
+  speed: '速度',
+  radius: '范围',
+};
+
+export const UPGRADE_MULTIPLIERS: Record<WeaponUpgradeKey, (level: number) => number> = {
+  damage: (level) => 1 + (level - 1) * 0.4,
+  speed: (level) => 1 + (level - 1) * 0.25,
+  radius: (level) => 1 + (level - 1) * 0.3,
+};
+
+export const EFFECT_TYPE_LABELS: Record<WeaponEffectType, string> = {
+  none: '无',
+  fire: '烈焰',
+  electric: '雷电',
+  rainbow: '彩虹',
+  shadow: '暗影',
+};
+
+export const EFFECT_COLORS: Record<WeaponEffectType, { main: string; trail: string; glow: string }> = {
+  none: { main: '', trail: '', glow: '' },
+  fire: { main: '#ff4500', trail: '#ff8c00', glow: '#ff0000' },
+  electric: { main: '#00bfff', trail: '#7df9ff', glow: '#0080ff' },
+  rainbow: { main: '#ff00ff', trail: '#00ffff', glow: '#ffff00' },
+  shadow: { main: '#2d1b69', trail: '#6b21a8', glow: '#4c1d95' },
+};
+
 export const materialProperties: Record<MaterialType, { color: string; health: number; density: number; emissive?: string }> = {
   wood: { color: '#8B4513', health: 50, density: 600, emissive: '#2a1505' },
   glass: { color: '#88ccff', health: 20, density: 2500, emissive: '#3366aa' },
@@ -258,6 +338,34 @@ function getOrCreateSprayCanvas(blockId: string): HTMLCanvasElement {
 export const useGameStore = create<GameState>((set, get) => ({
   weapon: 'wreckingBall',
   setWeapon: (weapon) => set({ weapon }),
+  weaponCustomizations: JSON.parse(JSON.stringify(WEAPON_DEFAULTS)),
+  upgradeWeapon: (weapon, key) =>
+    set((state) => {
+      const current = state.weaponCustomizations[weapon].upgrades[key];
+      if (current >= UPGRADE_MAX_LEVEL) return state;
+      const customizations = { ...state.weaponCustomizations };
+      customizations[weapon] = {
+        ...customizations[weapon],
+        upgrades: { ...customizations[weapon].upgrades, [key]: current + 1 },
+      };
+      return { weaponCustomizations: customizations };
+    }),
+  setWeaponAppearance: (weapon, key, value) =>
+    set((state) => {
+      const customizations = { ...state.weaponCustomizations };
+      customizations[weapon] = {
+        ...customizations[weapon],
+        appearance: { ...customizations[weapon].appearance, [key]: value },
+      };
+      return { weaponCustomizations: customizations };
+    }),
+  getWeaponUpgrade: (weapon, key) => get().weaponCustomizations[weapon].upgrades[key],
+  getWeaponUpgradeMultiplier: (weapon, key) => {
+    const level = get().weaponCustomizations[weapon].upgrades[key];
+    return UPGRADE_MULTIPLIERS[key](level);
+  },
+  getWeaponAppearance: (weapon) => get().weaponCustomizations[weapon].appearance,
+  resetWeaponCustomizations: () => set({ weaponCustomizations: JSON.parse(JSON.stringify(WEAPON_DEFAULTS)) }),
   blocks: new Map(),
   sprayColor: '#ff0066',
   setSprayColor: (color) => set({ sprayColor: color }),

@@ -1,5 +1,5 @@
-import { useGameStore, WeaponType, MaterialType, BuildTool, GravityDirection, GRAVITY_LABELS, ConstraintType, LabObjectType, LabTool } from '@/store/gameStore';
-import { Hammer, Circle, Bomb, RotateCcw, Building2, Castle, Eye, Undo2, Redo2, Trash2, Move, RotateCw, Plus, Box, Wrench, Swords, SprayCan, ArrowDown, ArrowUp, ArrowLeft, ArrowRight, CircleDot, CircleX, Bot, Grip, RefreshCw, FlaskConical, Link, Anchor, Minus, Scaling, Unlink } from 'lucide-react';
+import { useGameStore, WeaponType, MaterialType, BuildTool, GravityDirection, GRAVITY_LABELS, ConstraintType, LabObjectType, LabTool, WeaponUpgradeKey, WeaponEffectType, UPGRADE_MAX_LEVEL, UPGRADE_LABELS, UPGRADE_MULTIPLIERS, EFFECT_TYPE_LABELS, EFFECT_COLORS } from '@/store/gameStore';
+import { Hammer, Circle, Bomb, RotateCcw, Building2, Castle, Eye, Undo2, Redo2, Trash2, Move, RotateCw, Plus, Box, Wrench, Swords, SprayCan, ArrowDown, ArrowUp, ArrowLeft, ArrowRight, CircleDot, CircleX, Bot, Grip, RefreshCw, FlaskConical, Link, Anchor, Minus, Scaling, Unlink, ChevronUp, Palette, Sparkles, Zap, Target } from 'lucide-react';
 
 interface ControlPanelProps {
   onReset: () => void;
@@ -69,6 +69,33 @@ const SPRAY_COLORS = [
   '#6633ff', '#cc33ff', '#ff33cc', '#ffffff', '#000000',
 ];
 
+const UPGRADE_ICONS: Record<WeaponUpgradeKey, typeof Zap> = {
+  damage: Zap,
+  speed: Target,
+  radius: Circle,
+};
+
+const UPGRADE_COLORS: Record<WeaponUpgradeKey, string> = {
+  damage: 'from-red-500 to-orange-500',
+  speed: 'from-cyan-500 to-blue-500',
+  radius: 'from-purple-500 to-pink-500',
+};
+
+const APPEARANCE_COLORS = [
+  '#ff0000', '#ff4500', '#ff8c00', '#ffd700', '#ffff00',
+  '#7cfc00', '#00ff00', '#00fa9a', '#00ffff', '#00bfff',
+  '#0000ff', '#8a2be2', '#ff00ff', '#ff1493', '#ffffff',
+  '#888888', '#444444', '#000000',
+];
+
+const EFFECT_ICONS: Record<WeaponEffectType, string> = {
+  none: '⚪',
+  fire: '🔥',
+  electric: '⚡',
+  rainbow: '🌈',
+  shadow: '🌑',
+};
+
 const labObjectConfigs: { type: LabObjectType; name: string; icon: typeof Box; color: string; bgClass: string }[] = [
   { type: 'box', name: '立方体', icon: Box, color: '#4a90d9', bgClass: 'from-blue-500 to-blue-700' },
   { type: 'sphere', name: '球体', icon: Circle, color: '#e74c3c', bgClass: 'from-red-500 to-red-700' },
@@ -95,6 +122,10 @@ const labToolConfigs: { type: LabTool; name: string; icon: typeof Plus; color: s
 export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild, onResetRoboticArm, onResetPhysicsLab }: ControlPanelProps) {
   const weapon = useGameStore((s) => s.weapon);
   const setWeapon = useGameStore((s) => s.setWeapon);
+  const weaponCustomizations = useGameStore((s) => s.weaponCustomizations);
+  const upgradeWeapon = useGameStore((s) => s.upgradeWeapon);
+  const setWeaponAppearance = useGameStore((s) => s.setWeaponAppearance);
+  const resetWeaponCustomizations = useGameStore((s) => s.resetWeaponCustomizations);
   const blocks = useGameStore((s) => s.blocks);
   const shootCooldown = useGameStore((s) => s.shootCooldown);
   const wreckingBallActive = useGameStore((s) => s.wreckingBallActive);
@@ -1187,6 +1218,166 @@ export function ControlPanel({ onReset, onRegenerateBuilding, onClearBuild, onRe
               </div>
             </div>
           </div>
+
+          {weapon !== 'sprayPaint' && (
+            <div className="mt-3 p-3 rounded-xl bg-white/5 border border-white/10">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-white/70 text-xs font-medium uppercase tracking-wider flex items-center gap-1.5">
+                  <ChevronUp className="w-3.5 h-3.5" />
+                  属性升级
+                </div>
+                <button
+                  onClick={resetWeaponCustomizations}
+                  className="text-white/40 text-[10px] hover:text-white/70 transition-colors"
+                  title="重置所有武器自定义"
+                >
+                  重置
+                </button>
+              </div>
+              <div className="space-y-2">
+                {(['damage', 'speed', 'radius'] as WeaponUpgradeKey[]).map((key) => {
+                  const level = weaponCustomizations[weapon].upgrades[key];
+                  const multiplier = UPGRADE_MULTIPLIERS[key](level);
+                  const Icon = UPGRADE_ICONS[key];
+                  const isMaxed = level >= UPGRADE_MAX_LEVEL;
+                  return (
+                    <div key={key} className="flex items-center gap-2">
+                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 bg-gradient-to-br ${UPGRADE_COLORS[key]}`}>
+                        <Icon className="w-3.5 h-3.5 text-white" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-white/80 text-xs">{UPGRADE_LABELS[key]}</span>
+                          <span className="text-white/50 text-[10px] font-mono">×{multiplier.toFixed(1)}</span>
+                        </div>
+                        <div className="flex gap-0.5">
+                          {Array.from({ length: UPGRADE_MAX_LEVEL }, (_, i) => (
+                            <button
+                              key={i}
+                              onClick={() => {
+                                if (i + 1 > level) upgradeWeapon(weapon, key);
+                              }}
+                              className={`flex-1 h-1.5 rounded-full transition-all duration-200 ${
+                                i < level
+                                  ? `bg-gradient-to-r ${UPGRADE_COLORS[key]}`
+                                  : isMaxed
+                                  ? 'bg-white/10'
+                                  : 'bg-white/10 hover:bg-white/25 cursor-pointer'
+                              }`}
+                              disabled={isMaxed}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                      <span className={`text-[10px] font-mono w-5 text-right ${isMaxed ? 'text-yellow-400' : 'text-white/40'}`}>
+                        {level}/{UPGRADE_MAX_LEVEL}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {weapon !== 'sprayPaint' && (
+            <div className="mt-3 p-3 rounded-xl bg-white/5 border border-white/10">
+              <div className="text-white/70 text-xs mb-2 font-medium uppercase tracking-wider flex items-center gap-1.5">
+                <Palette className="w-3.5 h-3.5" />
+                外观自定义
+              </div>
+
+              <div className="mb-3">
+                <div className="text-white/60 text-[10px] mb-1.5 font-medium">武器颜色</div>
+                <div className="grid grid-cols-6 gap-1">
+                  {APPEARANCE_COLORS.map((color) => (
+                    <button
+                      key={`main-${color}`}
+                      onClick={() => setWeaponAppearance(weapon, 'mainColor', color)}
+                      className={`relative w-full aspect-square rounded-md transition-all duration-200 border-2 ${
+                        weaponCustomizations[weapon].appearance.mainColor === color
+                          ? 'border-white scale-110 shadow-lg'
+                          : 'border-white/5 hover:border-white/30 hover:scale-105'
+                      }`}
+                      style={{ backgroundColor: color }}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div className="mb-3">
+                <div className="text-white/60 text-[10px] mb-1.5 font-medium">拖尾颜色</div>
+                <div className="grid grid-cols-6 gap-1">
+                  {APPEARANCE_COLORS.map((color) => (
+                    <button
+                      key={`trail-${color}`}
+                      onClick={() => setWeaponAppearance(weapon, 'trailColor', color)}
+                      className={`relative w-full aspect-square rounded-md transition-all duration-200 border-2 ${
+                        weaponCustomizations[weapon].appearance.trailColor === color
+                          ? 'border-white scale-110 shadow-lg'
+                          : 'border-white/5 hover:border-white/30 hover:scale-105'
+                      }`}
+                      style={{ backgroundColor: color }}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div className="mb-3">
+                <div className="text-white/60 text-[10px] mb-1.5 font-medium">发光颜色</div>
+                <div className="grid grid-cols-6 gap-1">
+                  {APPEARANCE_COLORS.map((color) => (
+                    <button
+                      key={`glow-${color}`}
+                      onClick={() => setWeaponAppearance(weapon, 'glowColor', color)}
+                      className={`relative w-full aspect-square rounded-md transition-all duration-200 border-2 ${
+                        weaponCustomizations[weapon].appearance.glowColor === color
+                          ? 'border-white scale-110 shadow-lg'
+                          : 'border-white/5 hover:border-white/30 hover:scale-105'
+                      }`}
+                      style={{ backgroundColor: color }}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="text-white/60 text-[10px] mb-1.5 font-medium">特效类型</div>
+                <div className="grid grid-cols-5 gap-1">
+                  {(['none', 'fire', 'electric', 'rainbow', 'shadow'] as WeaponEffectType[]).map((effect) => (
+                    <button
+                      key={effect}
+                      onClick={() => setWeaponAppearance(weapon, 'effectType', effect)}
+                      className={`relative flex flex-col items-center gap-0.5 p-1.5 rounded-lg transition-all duration-200 border ${
+                        weaponCustomizations[weapon].appearance.effectType === effect
+                          ? 'bg-gradient-to-br from-indigo-500/30 to-purple-500/30 border-indigo-400/40 scale-105'
+                          : 'bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/20'
+                      }`}
+                    >
+                      <span className="text-sm">{EFFECT_ICONS[effect]}</span>
+                      <span className={`text-[9px] ${weaponCustomizations[weapon].appearance.effectType === effect ? 'text-white' : 'text-white/50'}`}>
+                        {EFFECT_TYPE_LABELS[effect]}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {weaponCustomizations[weapon].appearance.effectType !== 'none' && (
+                <button
+                  onClick={() => {
+                    const colors = EFFECT_COLORS[weaponCustomizations[weapon].appearance.effectType];
+                    setWeaponAppearance(weapon, 'mainColor', colors.main);
+                    setWeaponAppearance(weapon, 'trailColor', colors.trail);
+                    setWeaponAppearance(weapon, 'glowColor', colors.glow);
+                  }}
+                  className="mt-2 w-full flex items-center justify-center gap-1.5 p-2 rounded-lg bg-gradient-to-r from-indigo-500/20 to-purple-500/20 border border-indigo-500/30 hover:from-indigo-500/30 hover:to-purple-500/30 transition-all duration-200"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-300" />
+                  <span className="text-indigo-300 text-xs">应用{EFFECT_TYPE_LABELS[weaponCustomizations[weapon].appearance.effectType]}配色</span>
+                </button>
+              )}
+            </div>
+          )}
 
           {shootCooldown && weapon !== 'wreckingBall' && (
             <div className="mt-2 h-1 rounded-full bg-white/10 overflow-hidden">
