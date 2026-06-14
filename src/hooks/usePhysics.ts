@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import * as CANNON from 'cannon-es';
 import { useGameStore, GRAVITY_VECTORS, GravityDirection } from '@/store/gameStore';
+import { calculateExplosionImpulse, clampDeltaTime } from '@/lib/physicsUtils';
 
 export const usePhysics = () => {
   const worldRef = useRef<CANNON.World | null>(null);
@@ -162,7 +163,7 @@ export const usePhysics = () => {
 
   const step = useCallback((delta: number) => {
     if (worldRef.current) {
-      worldRef.current.step(Math.min(1 / 60, delta));
+      worldRef.current.step(clampDeltaTime(delta));
     }
   }, []);
 
@@ -182,21 +183,17 @@ export const usePhysics = () => {
 
   const applyExplosion = useCallback((position: [number, number, number], radius: number, force: number) => {
     if (!worldRef.current) return;
-    const [px, py, pz] = position;
     bodiesMapRef.current.forEach((body) => {
       if (body.mass === 0) return;
-      const dx = body.position.x - px;
-      const dy = body.position.y - py;
-      const dz = body.position.z - pz;
-      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-      if (dist < radius && dist > 0.01) {
-        const falloff = 1 - dist / radius;
-        const impulseMagnitude = force * falloff;
-        const nx = dx / dist;
-        const ny = dy / dist;
-        const nz = dz / dist;
+      const result = calculateExplosionImpulse(
+        [body.position.x, body.position.y, body.position.z],
+        position,
+        radius,
+        force
+      );
+      if (result.shouldApply) {
         body.applyImpulse(
-          new CANNON.Vec3(nx * impulseMagnitude, ny * impulseMagnitude, nz * impulseMagnitude),
+          new CANNON.Vec3(result.impulseX, result.impulseY, result.impulseZ),
           new CANNON.Vec3(body.position.x, body.position.y, body.position.z)
         );
         body.wakeUp();

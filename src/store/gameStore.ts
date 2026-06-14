@@ -11,6 +11,7 @@ import * as BuildSystem from '@/ecs/systems/build';
 import * as PhysicsLabSystem from '@/ecs/systems/physicsLab';
 import * as RoboticArmSystem from '@/ecs/systems/roboticArm';
 import * as BlueprintSystem from '@/ecs/systems/blueprint';
+import { clampSpraySize } from '@/lib/physicsUtils';
 
 export type WeaponType = 'wreckingBall' | 'steelBall' | 'explosive' | 'sprayPaint';
 
@@ -363,7 +364,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   sprayColor: '#ff0066',
   setSprayColor: (color) => set({ sprayColor: color }),
   spraySize: 20,
-  setSpraySize: (size) => set({ spraySize: Math.max(5, Math.min(80, size)) }),
+  setSpraySize: (size) => set({ spraySize: clampSpraySize(size) }),
   addSprayPoint: (blockId: string, point: SprayPoint) => {
     BlockSystem.addSprayPoint(blockId, point, ecsWorld);
     set({ blocks: BlockSystem.collectBlocksFromWorld(ecsWorld) });
