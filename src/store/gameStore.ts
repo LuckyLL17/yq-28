@@ -1,5 +1,16 @@
 import { create } from 'zustand';
 import * as CANNON from 'cannon-es';
+import { World } from '@/ecs/core';
+import { ComponentType } from '@/ecs/components';
+import * as BlockSystem from '@/ecs/systems/block';
+import * as ParticleSystem from '@/ecs/systems/particle';
+import * as ExplosionSystem from '@/ecs/systems/explosion';
+import * as WeaponSystem from '@/ecs/systems/weapon';
+import * as AudioSystem from '@/ecs/systems/audio';
+import * as BuildSystem from '@/ecs/systems/build';
+import * as PhysicsLabSystem from '@/ecs/systems/physicsLab';
+import * as RoboticArmSystem from '@/ecs/systems/roboticArm';
+import * as BlueprintSystem from '@/ecs/systems/blueprint';
 
 export type WeaponType = 'wreckingBall' | 'steelBall' | 'explosive' | 'sprayPaint';
 
@@ -266,6 +277,8 @@ interface GameState {
   refreshBlueprints: () => void;
 }
 
+const ecsWorld = new World();
+
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
 export const WEAPON_DEFAULTS: WeaponCustomizations = {
@@ -327,141 +340,39 @@ export const MAX_UNDO_STEPS = 50;
 
 const EMPTY_SPECTRUM = new Float32Array(1024);
 
-const blockSprayCanvases = new Map<string, HTMLCanvasElement>();
-const blockSprayPoints = new Map<string, SprayPoint[]>();
-const SPRAY_CANVAS_SIZE = 256;
-
-const BLUEPRINTS_KEY = 'destruction-blueprints';
-
-function loadBlueprintsFromStorage(): BlueprintData[] {
-  try {
-    const raw = localStorage.getItem(BLUEPRINTS_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveBlueprintsToStorage(blueprints: BlueprintData[]) {
-  try {
-    localStorage.setItem(BLUEPRINTS_KEY, JSON.stringify(blueprints));
-  } catch {}
-}
-
-function createSprayCanvas(): HTMLCanvasElement {
-  const canvas = document.createElement('canvas');
-  canvas.width = SPRAY_CANVAS_SIZE;
-  canvas.height = SPRAY_CANVAS_SIZE;
-  return canvas;
-}
-
-function getOrCreateSprayCanvas(blockId: string): HTMLCanvasElement {
-  let canvas = blockSprayCanvases.get(blockId);
-  if (!canvas) {
-    canvas = createSprayCanvas();
-    blockSprayCanvases.set(blockId, canvas);
-    blockSprayPoints.set(blockId, []);
-  }
-  return canvas;
-}
-
 export const useGameStore = create<GameState>((set, get) => ({
   weapon: 'wreckingBall',
   setWeapon: (weapon) => set({ weapon }),
   weaponCustomizations: JSON.parse(JSON.stringify(WEAPON_DEFAULTS)),
   upgradeWeapon: (weapon, key) =>
-    set((state) => {
-      const current = state.weaponCustomizations[weapon].upgrades[key];
-      if (current >= UPGRADE_MAX_LEVEL) return state;
-      const customizations = { ...state.weaponCustomizations };
-      customizations[weapon] = {
-        ...customizations[weapon],
-        upgrades: { ...customizations[weapon].upgrades, [key]: current + 1 },
-      };
-      return { weaponCustomizations: customizations };
-    }),
+    set((state) => ({
+      weaponCustomizations: WeaponSystem.upgradeWeapon(state.weaponCustomizations, weapon, key),
+    })),
   setWeaponAppearance: (weapon, key, value) =>
-    set((state) => {
-      const customizations = { ...state.weaponCustomizations };
-      customizations[weapon] = {
-        ...customizations[weapon],
-        appearance: { ...customizations[weapon].appearance, [key]: value },
-      };
-      return { weaponCustomizations: customizations };
-    }),
+    set((state) => ({
+      weaponCustomizations: WeaponSystem.setWeaponAppearance(state.weaponCustomizations, weapon, key, value),
+    })),
   getWeaponUpgrade: (weapon, key) => get().weaponCustomizations[weapon].upgrades[key],
   getWeaponUpgradeMultiplier: (weapon, key) => {
     const level = get().weaponCustomizations[weapon].upgrades[key];
     return UPGRADE_MULTIPLIERS[key](level);
   },
   getWeaponAppearance: (weapon) => get().weaponCustomizations[weapon].appearance,
-  resetWeaponCustomizations: () => set({ weaponCustomizations: JSON.parse(JSON.stringify(WEAPON_DEFAULTS)) }),
+  resetWeaponCustomizations: () => set({ weaponCustomizations: WeaponSystem.resetWeaponCustomizations() }),
   blocks: new Map(),
   sprayColor: '#ff0066',
   setSprayColor: (color) => set({ sprayColor: color }),
   spraySize: 20,
   setSpraySize: (size) => set({ spraySize: Math.max(5, Math.min(80, size)) }),
   addSprayPoint: (blockId: string, point: SprayPoint) => {
-    const canvas = getOrCreateSprayCanvas(blockId);
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.save();
-      const gradient = ctx.createRadialGradient(
-        point.x * SPRAY_CANVAS_SIZE,
-        point.y * SPRAY_CANVAS_SIZE,
-        0,
-        point.x * SPRAY_CANVAS_SIZE,
-        point.y * SPRAY_CANVAS_SIZE,
-        point.size
-      );
-      gradient.addColorStop(0, point.color);
-      gradient.addColorStop(0.4, point.color + 'cc');
-      gradient.addColorStop(0.7, point.color + '66');
-      gradient.addColorStop(1, point.color + '00');
-      ctx.fillStyle = gradient;
-      ctx.beginPath();
-      ctx.arc(
-        point.x * SPRAY_CANVAS_SIZE,
-        point.y * SPRAY_CANVAS_SIZE,
-        point.size,
-        0,
-        Math.PI * 2
-      );
-      ctx.fill();
-      ctx.restore();
-
-      const particles = 5 + Math.floor(Math.random() * 8);
-      for (let i = 0; i < particles; i++) {
-        const angle = Math.random() * Math.PI * 2;
-        const dist = Math.random() * point.size * 0.8;
-        const px = point.x * SPRAY_CANVAS_SIZE + Math.cos(angle) * dist;
-        const py = point.y * SPRAY_CANVAS_SIZE + Math.sin(angle) * dist;
-        const psize = point.size * (0.1 + Math.random() * 0.3);
-        ctx.fillStyle = point.color + Math.floor(80 + Math.random() * 120).toString(16).padStart(2, '0');
-        ctx.beginPath();
-        ctx.arc(px, py, psize, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-    const points = blockSprayPoints.get(blockId) || [];
-    points.push(point);
-    blockSprayPoints.set(blockId, points);
-
-    const blocks = new Map(get().blocks);
-    const block = blocks.get(blockId);
-    if (block) {
-      blocks.set(blockId, {
-        ...block,
-        sprayTextureVersion: (block.sprayTextureVersion || 0) + 1,
-      });
-      set({ blocks });
-    }
+    BlockSystem.addSprayPoint(blockId, point, ecsWorld);
+    set({ blocks: BlockSystem.collectBlocksFromWorld(ecsWorld) });
   },
   getBlockSprayCanvas: (blockId: string) => {
-    return blockSprayCanvases.get(blockId) || null;
+    return BlockSystem.getBlockSprayCanvas(blockId);
   },
   getBlockSprayPoints: (blockId: string) => {
-    return blockSprayPoints.get(blockId) || [];
+    return BlockSystem.getBlockSprayPoints(blockId);
   },
   audioAnalysis: {
     bass: 0,
@@ -483,140 +394,87 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
   updateAudioEffectsConfig: (config) =>
     set((state) => ({
-      audioEffectsConfig: { ...state.audioEffectsConfig, ...config },
+      audioEffectsConfig: AudioSystem.updateAudioEffectsConfig(state.audioEffectsConfig, config),
     })),
   gravityDirection: 'down',
   setGravityDirection: (direction) => set({ gravityDirection: direction }),
-  roboticArm: {
-    baseAngle: 0,
-    shoulderAngle: -Math.PI / 4,
-    elbowAngle: Math.PI / 2,
-    wristAngle: 0,
-    gripperOpen: true,
-    isGrabbing: false,
-    grabbedBlockId: null,
-  },
+  roboticArm: RoboticArmSystem.resetRoboticArm(),
   setRoboticArmBaseAngle: (angle) =>
-    set((state) => ({ roboticArm: { ...state.roboticArm, baseAngle: angle } })),
+    set((state) => ({ roboticArm: RoboticArmSystem.setRoboticArmField(state.roboticArm, 'baseAngle', angle) })),
   setRoboticArmShoulderAngle: (angle) =>
-    set((state) => ({ roboticArm: { ...state.roboticArm, shoulderAngle: angle } })),
+    set((state) => ({ roboticArm: RoboticArmSystem.setRoboticArmField(state.roboticArm, 'shoulderAngle', angle) })),
   setRoboticArmElbowAngle: (angle) =>
-    set((state) => ({ roboticArm: { ...state.roboticArm, elbowAngle: angle } })),
+    set((state) => ({ roboticArm: RoboticArmSystem.setRoboticArmField(state.roboticArm, 'elbowAngle', angle) })),
   setRoboticArmWristAngle: (angle) =>
-    set((state) => ({ roboticArm: { ...state.roboticArm, wristAngle: angle } })),
+    set((state) => ({ roboticArm: RoboticArmSystem.setRoboticArmField(state.roboticArm, 'wristAngle', angle) })),
   setRoboticArmGripperOpen: (open) =>
-    set((state) => ({ roboticArm: { ...state.roboticArm, gripperOpen: open } })),
+    set((state) => ({ roboticArm: RoboticArmSystem.setRoboticArmField(state.roboticArm, 'gripperOpen', open) })),
   setRoboticArmGrabbing: (grabbing) =>
-    set((state) => ({ roboticArm: { ...state.roboticArm, isGrabbing: grabbing } })),
+    set((state) => ({ roboticArm: RoboticArmSystem.setRoboticArmField(state.roboticArm, 'isGrabbing', grabbing) })),
   setRoboticArmGrabbedBlockId: (id) =>
-    set((state) => ({ roboticArm: { ...state.roboticArm, grabbedBlockId: id } })),
-  resetRoboticArm: () =>
-    set({
-      roboticArm: {
-        baseAngle: 0,
-        shoulderAngle: -Math.PI / 4,
-        elbowAngle: Math.PI / 2,
-        wristAngle: 0,
-        gripperOpen: true,
-        isGrabbing: false,
-        grabbedBlockId: null,
-      },
-    }),
+    set((state) => ({ roboticArm: RoboticArmSystem.setRoboticArmField(state.roboticArm, 'grabbedBlockId', id) })),
+  resetRoboticArm: () => set({ roboticArm: RoboticArmSystem.resetRoboticArm() }),
   addBlock: (block) => {
-    const blocks = new Map(get().blocks);
-    blocks.set(block.id, { ...block });
-    set({ blocks });
+    BlockSystem.addBlock(ecsWorld, block);
+    set({ blocks: BlockSystem.collectBlocksFromWorld(ecsWorld) });
   },
   addBlocks: (newBlocks) => {
-    const blocks = new Map(get().blocks);
-    newBlocks.forEach((block) => {
-      blocks.set(block.id, { ...block });
-    });
-    set({ blocks });
+    newBlocks.forEach((block) => BlockSystem.addBlock(ecsWorld, block));
+    set({ blocks: BlockSystem.collectBlocksFromWorld(ecsWorld) });
   },
   removeBlock: (id) => {
-    const blocks = new Map(get().blocks);
-    blocks.delete(id);
-    blockSprayCanvases.delete(id);
-    blockSprayPoints.delete(id);
-    set({ blocks });
+    BlockSystem.removeBlock(ecsWorld, id);
+    set({ blocks: BlockSystem.collectBlocksFromWorld(ecsWorld) });
   },
   damageBlock: (id, damage) => {
-    const blocks = new Map(get().blocks);
-    const block = blocks.get(id);
-    if (block) {
-      const newHealth = block.health - damage;
-      if (newHealth <= 0) {
-        blocks.delete(id);
-        blockSprayCanvases.delete(id);
-        blockSprayPoints.delete(id);
-        set({ blocks });
-        return true;
-      }
-      blocks.set(id, { ...block, health: newHealth });
-      set({ blocks });
-    }
-    return false;
+    const destroyed = BlockSystem.damageBlock(ecsWorld, id, damage);
+    set({ blocks: BlockSystem.collectBlocksFromWorld(ecsWorld) });
+    return destroyed;
   },
   updateBlockPosition: (id, position) => {
-    const blocks = new Map(get().blocks);
-    const block = blocks.get(id);
-    if (block) {
-      blocks.set(id, { ...block, position: [...position] as [number, number, number] });
-      set({ blocks });
-    }
+    BlockSystem.updateBlockPosition(ecsWorld, id, position);
+    set({ blocks: BlockSystem.collectBlocksFromWorld(ecsWorld) });
   },
   updateBlockRotation: (id, rotation) => {
-    const blocks = new Map(get().blocks);
-    const block = blocks.get(id);
-    if (block) {
-      blocks.set(id, { ...block, rotation: [...rotation] as [number, number, number] });
-      set({ blocks });
-    }
+    BlockSystem.updateBlockRotation(ecsWorld, id, rotation);
+    set({ blocks: BlockSystem.collectBlocksFromWorld(ecsWorld) });
   },
   particles: new Map(),
   addParticle: (particle) => {
-    const particles = new Map(get().particles);
-    particles.set(particle.id, { ...particle });
-    set({ particles });
+    ParticleSystem.addParticle(ecsWorld, particle);
+    set({ particles: ParticleSystem.collectParticlesFromWorld(ecsWorld) });
   },
   removeParticle: (id) => {
-    const particles = new Map(get().particles);
-    particles.delete(id);
-    set({ particles });
+    ParticleSystem.removeParticle(ecsWorld, id);
+    set({ particles: ParticleSystem.collectParticlesFromWorld(ecsWorld) });
   },
   updateParticle: (id, data) => {
-    const particles = new Map(get().particles);
-    const particle = particles.get(id);
-    if (particle) {
-      particles.set(id, { ...particle, ...data });
-      set({ particles });
-    }
+    ParticleSystem.updateParticle(ecsWorld, id, data);
+    set({ particles: ParticleSystem.collectParticlesFromWorld(ecsWorld) });
   },
   explosions: new Map(),
   addExplosion: (explosion) => {
-    const explosions = new Map(get().explosions);
-    explosions.set(explosion.id, { ...explosion });
-    set({ explosions });
+    ExplosionSystem.addExplosion(ecsWorld, explosion);
+    set({ explosions: ExplosionSystem.collectExplosionsFromWorld(ecsWorld) });
   },
   removeExplosion: (id) => {
-    const explosions = new Map(get().explosions);
-    explosions.delete(id);
-    set({ explosions });
+    ExplosionSystem.removeExplosion(ecsWorld, id);
+    set({ explosions: ExplosionSystem.collectExplosionsFromWorld(ecsWorld) });
   },
   updateExplosion: (id, data) => {
-    const explosions = new Map(get().explosions);
-    const explosion = explosions.get(id);
-    if (explosion) {
-      explosions.set(id, { ...explosion, ...data });
-      set({ explosions });
-    }
+    ExplosionSystem.updateExplosion(ecsWorld, id, data);
+    set({ explosions: ExplosionSystem.collectExplosionsFromWorld(ecsWorld) });
   },
   wreckingBallActive: false,
   setWreckingBallActive: (active) => set({ wreckingBallActive: active }),
   resetGame: () => {
-    blockSprayCanvases.clear();
-    blockSprayPoints.clear();
+    BlockSystem.clearBlockSprayData();
+    const blockIds = ecsWorld.query(ComponentType.BlockTag);
+    blockIds.forEach((id) => ecsWorld.destroyEntity(id));
+    const particleIds = ecsWorld.query(ComponentType.ParticleTag);
+    particleIds.forEach((id) => ecsWorld.destroyEntity(id));
+    const explosionIds = ecsWorld.query(ComponentType.ExplosionTag);
+    explosionIds.forEach((id) => ecsWorld.destroyEntity(id));
     set({
       blocks: new Map(),
       particles: new Map(),
@@ -640,105 +498,37 @@ export const useGameStore = create<GameState>((set, get) => ({
   undoStack: [],
   redoStack: [],
   pushUndoAction: (action) => {
-    const currentUndo = get().undoStack;
-    let newUndoStack = [...currentUndo, action];
-    if (newUndoStack.length > MAX_UNDO_STEPS) {
-      newUndoStack = newUndoStack.slice(newUndoStack.length - MAX_UNDO_STEPS);
-    }
-    set({ undoStack: newUndoStack, redoStack: [] });
+    const result = BuildSystem.pushUndoAction(get().undoStack, action);
+    set({ undoStack: result.undoStack, redoStack: result.redoStack });
   },
   undo: () => {
     const { undoStack, redoStack } = get();
-    if (undoStack.length === 0) return;
-    const action = undoStack[undoStack.length - 1];
-    const newUndoStack = undoStack.slice(0, -1);
-    const newRedoStack = [...redoStack, action];
-
-    const blocks = new Map(get().blocks);
-
-    switch (action.type) {
-      case 'add': {
-        blocks.delete(action.block.id);
-        break;
-      }
-      case 'remove': {
-        blocks.set(action.block.id, { ...action.block });
-        break;
-      }
-      case 'move': {
-        const block = blocks.get(action.blockId);
-        if (block) {
-          blocks.set(action.blockId, {
-            ...block,
-            position: [...action.fromPosition] as [number, number, number],
-          });
-        }
-        break;
-      }
-      case 'rotate': {
-        const block = blocks.get(action.blockId);
-        if (block) {
-          blocks.set(action.blockId, {
-            ...block,
-            rotation: [...action.fromRotation] as [number, number, number],
-          });
-        }
-        break;
-      }
+    const result = BuildSystem.applyUndo(ecsWorld, undoStack, redoStack);
+    if (result) {
+      set({
+        blocks: BlockSystem.collectBlocksFromWorld(ecsWorld),
+        undoStack: result.undoStack,
+        redoStack: result.redoStack,
+        selectedBlockId: null,
+      });
     }
-
-    set({ blocks, undoStack: newUndoStack, redoStack: newRedoStack, selectedBlockId: null });
   },
   redo: () => {
     const { undoStack, redoStack } = get();
-    if (redoStack.length === 0) return;
-    const action = redoStack[redoStack.length - 1];
-    const newRedoStack = redoStack.slice(0, -1);
-    let newUndoStack = [...undoStack, action];
-    if (newUndoStack.length > MAX_UNDO_STEPS) {
-      newUndoStack = newUndoStack.slice(newUndoStack.length - MAX_UNDO_STEPS);
+    const result = BuildSystem.applyRedo(ecsWorld, undoStack, redoStack);
+    if (result) {
+      set({
+        blocks: BlockSystem.collectBlocksFromWorld(ecsWorld),
+        undoStack: result.undoStack,
+        redoStack: result.redoStack,
+        selectedBlockId: null,
+      });
     }
-
-    const blocks = new Map(get().blocks);
-
-    switch (action.type) {
-      case 'add': {
-        blocks.set(action.block.id, { ...action.block });
-        break;
-      }
-      case 'remove': {
-        blocks.delete(action.block.id);
-        break;
-      }
-      case 'move': {
-        const block = blocks.get(action.blockId);
-        if (block) {
-          blocks.set(action.blockId, {
-            ...block,
-            position: [...action.toPosition] as [number, number, number],
-          });
-        }
-        break;
-      }
-      case 'rotate': {
-        const block = blocks.get(action.blockId);
-        if (block) {
-          blocks.set(action.blockId, {
-            ...block,
-            rotation: [...action.toRotation] as [number, number, number],
-          });
-        }
-        break;
-      }
-    }
-
-    set({ blocks, undoStack: newUndoStack, redoStack: newRedoStack, selectedBlockId: null });
   },
   clearBuildState: () => {
-    blockSprayCanvases.clear();
-    blockSprayPoints.clear();
+    BuildSystem.clearBuildState(ecsWorld);
     set({
-      blocks: new Map(),
+      blocks: BlockSystem.collectBlocksFromWorld(ecsWorld),
       undoStack: [],
       redoStack: [],
       selectedBlockId: null,
@@ -755,38 +545,30 @@ export const useGameStore = create<GameState>((set, get) => ({
   springDamping: 10,
   ropeLength: 5,
   addLabObject: (obj) => {
-    const labObjects = new Map(get().labObjects);
-    labObjects.set(obj.id, { ...obj });
-    set({ labObjects });
+    PhysicsLabSystem.addLabObject(ecsWorld, obj);
+    set({
+      labObjects: PhysicsLabSystem.collectLabObjectsFromWorld(ecsWorld),
+      labConstraints: PhysicsLabSystem.collectLabConstraintsFromWorld(ecsWorld),
+    });
   },
   removeLabObject: (id) => {
-    const labObjects = new Map(get().labObjects);
-    const labConstraints = new Map(get().labConstraints);
-    labObjects.delete(id);
-    labConstraints.forEach((constraint, cid) => {
-      if (constraint.bodyAId === id || constraint.bodyBId === id) {
-        labConstraints.delete(cid);
-      }
+    PhysicsLabSystem.removeLabObject(ecsWorld, id);
+    set({
+      labObjects: PhysicsLabSystem.collectLabObjectsFromWorld(ecsWorld),
+      labConstraints: PhysicsLabSystem.collectLabConstraintsFromWorld(ecsWorld),
     });
-    set({ labObjects, labConstraints });
   },
   updateLabObjectPosition: (id, position) => {
-    const labObjects = new Map(get().labObjects);
-    const obj = labObjects.get(id);
-    if (obj) {
-      labObjects.set(id, { ...obj, position: [...position] as [number, number, number] });
-      set({ labObjects });
-    }
+    PhysicsLabSystem.updateLabObjectPosition(ecsWorld, id, position);
+    set({ labObjects: PhysicsLabSystem.collectLabObjectsFromWorld(ecsWorld) });
   },
   addLabConstraint: (constraint) => {
-    const labConstraints = new Map(get().labConstraints);
-    labConstraints.set(constraint.id, { ...constraint });
-    set({ labConstraints });
+    PhysicsLabSystem.addLabConstraint(ecsWorld, constraint);
+    set({ labConstraints: PhysicsLabSystem.collectLabConstraintsFromWorld(ecsWorld) });
   },
   removeLabConstraint: (id) => {
-    const labConstraints = new Map(get().labConstraints);
-    labConstraints.delete(id);
-    set({ labConstraints });
+    PhysicsLabSystem.removeLabConstraint(ecsWorld, id);
+    set({ labConstraints: PhysicsLabSystem.collectLabConstraintsFromWorld(ecsWorld) });
   },
   setLabTool: (tool) => set({ labTool: tool, constraintStartObjectId: null, selectedLabObjectId: null }),
   setSelectedLabObjectId: (id) => set({ selectedLabObjectId: id }),
@@ -797,6 +579,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   setSpringDamping: (value) => set({ springDamping: value }),
   setRopeLength: (value) => set({ ropeLength: value }),
   resetPhysicsLab: () => {
+    PhysicsLabSystem.resetPhysicsLab(ecsWorld);
     set({
       labObjects: new Map(),
       labConstraints: new Map(),
@@ -804,58 +587,20 @@ export const useGameStore = create<GameState>((set, get) => ({
       constraintStartObjectId: null,
     });
   },
-  blueprints: loadBlueprintsFromStorage(),
+  blueprints: BlueprintSystem.loadBlueprintsFromStorage(),
   saveBlueprint: (name: string) => {
     const state = get();
-    const blocks = state.blocks;
-    const blockEntries: BlueprintData['blocks'] = [];
-    blocks.forEach((block) => {
-      blockEntries.push({
-        position: [...block.position] as [number, number, number],
-        size: [...block.size] as [number, number, number],
-        material: block.material,
-        rotation: block.rotation ? [...block.rotation] as [number, number, number] : undefined,
-      });
-    });
-
-    if (blockEntries.length === 0) return;
-
-    const blueprint: BlueprintData = {
-      id: generateId(),
-      name,
-      blocks: blockEntries,
-      gravityDirection: state.gravityDirection,
-      createdAt: Date.now(),
-    };
-
-    const blueprints = [...get().blueprints, blueprint];
-    saveBlueprintsToStorage(blueprints);
-    set({ blueprints });
+    const result = BlueprintSystem.saveBlueprint(ecsWorld, name, state.blueprints, state.gravityDirection);
+    if (result) {
+      set({ blueprints: result });
+    }
   },
   loadBlueprint: (id: string) => {
     const blueprint = get().blueprints.find((b) => b.id === id);
     if (!blueprint) return;
-
-    blockSprayCanvases.clear();
-    blockSprayPoints.clear();
-
-    const newBlocks = new Map<string, BlockData>();
-    blueprint.blocks.forEach((entry) => {
-      const blockId = generateId();
-      const props = materialProperties[entry.material];
-      newBlocks.set(blockId, {
-        id: blockId,
-        position: [...entry.position] as [number, number, number],
-        size: [...entry.size] as [number, number, number],
-        material: entry.material,
-        health: props.health,
-        maxHealth: props.health,
-        rotation: entry.rotation ? [...entry.rotation] as [number, number, number] : [0, 0, 0],
-      });
-    });
-
+    BlueprintSystem.loadBlueprint(ecsWorld, blueprint);
     set({
-      blocks: newBlocks,
+      blocks: BlockSystem.collectBlocksFromWorld(ecsWorld),
       gravityDirection: blueprint.gravityDirection,
       undoStack: [],
       redoStack: [],
@@ -863,13 +608,12 @@ export const useGameStore = create<GameState>((set, get) => ({
     });
   },
   deleteBlueprint: (id: string) => {
-    const blueprints = get().blueprints.filter((b) => b.id !== id);
-    saveBlueprintsToStorage(blueprints);
+    const blueprints = BlueprintSystem.deleteBlueprint(id, get().blueprints);
     set({ blueprints });
   },
   refreshBlueprints: () => {
-    set({ blueprints: loadBlueprintsFromStorage() });
+    set({ blueprints: BlueprintSystem.loadBlueprintsFromStorage() });
   },
 }));
 
-export { generateId };
+export { generateId, ecsWorld };
