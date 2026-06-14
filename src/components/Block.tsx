@@ -66,6 +66,7 @@ export function Block({
   const audioColorRef = useRef(new THREE.Color(materialProperties[material].color));
   const audioDamageAccum = useRef(0);
   const collapseCooldown = useRef(0);
+  const creationTimeRef = useRef(0);
 
   const hasSprayTexture = useRef(false);
 
@@ -190,7 +191,7 @@ export function Block({
 
     body.sleep();
 
-    let creationTime = performance.now();
+    creationTimeRef.current = performance.now();
 
     const getGravityDistance = (pos: [number, number, number], grav: GravityDirection): number => {
       const boundary = 50;
@@ -212,7 +213,7 @@ export function Block({
     }, wakeDelay);
 
     body.addEventListener('collide', (event: any) => {
-      const age = performance.now() - creationTime;
+      const age = performance.now() - creationTimeRef.current;
       if (age < 2000) return;
       if ((body as any).isSleeping && (body as any).isSleeping()) return;
 
@@ -374,24 +375,24 @@ export function Block({
     }
 
     if (audioEnabled && audioEffectsConfig.enableCollapse && !destroyed && body) {
-      const age = performance.now() - creationTime;
-      if (age >= 3000 && !((body as any).isSleeping && (body as any).isSleeping())) {
-      collapseCooldown.current = Math.max(0, collapseCooldown.current - delta);
-      const { bass, treble, beatDetected, volume } = useGameStore.getState().audioAnalysis;
-      const { collapseThreshold } = audioEffectsConfig;
+      const age = performance.now() - creationTimeRef.current;
+      if (age >= 3000 && !(body as any).isSleeping()) {
+        collapseCooldown.current = Math.max(0, collapseCooldown.current - delta);
+        const { bass, treble, beatDetected, volume } = useGameStore.getState().audioAnalysis;
+        const { collapseThreshold } = audioEffectsConfig;
 
-      const collapseEnergy = bass * 0.5 + volume * 0.3 + (beatDetected ? 0.4 : 0);
-      const sensitivity = 0.5 + treble * 0.5;
+        const collapseEnergy = bass * 0.5 + volume * 0.3 + (beatDetected ? 0.4 : 0);
+        const sensitivity = 0.5 + treble * 0.5;
 
-      if (collapseEnergy > collapseThreshold && collapseCooldown.current === 0) {
-        audioDamageAccum.current += collapseEnergy * sensitivity * delta * 60;
-      }
+        if (collapseEnergy > collapseThreshold && collapseCooldown.current === 0) {
+          audioDamageAccum.current += collapseEnergy * sensitivity * delta * 60;
+        }
 
-      if (audioDamageAccum.current > 0) {
-        audioDamageAccum.current = Math.max(0, audioDamageAccum.current - delta * 0.5);
+        if (audioDamageAccum.current > 0) {
+          audioDamageAccum.current = Math.max(0, audioDamageAccum.current - delta * 0.5);
 
-        const damageChance = audioDamageAccum.current * 0.02;
-        if (Math.random() < damageChance && collapseCooldown.current === 0) {
+          const damageChance = audioDamageAccum.current * 0.02;
+          if (Math.random() < damageChance && collapseCooldown.current === 0) {
             const damage = materialProperties[material].health * (0.15 + bass * 0.35);
             collapseCooldown.current = 0.15;
 
@@ -407,30 +408,30 @@ export function Block({
                 }
               }
             } else {
-            if (body && body.type !== CANNON.Body.DYNAMIC) {
-              body.type = CANNON.Body.DYNAMIC;
+              if (body && body.type !== CANNON.Body.DYNAMIC) {
+                body.type = CANNON.Body.DYNAMIC;
+              }
+              body.wakeUp();
+              const forceStrength = (50 + bass * 200) * (1 + blockPosHash);
+              const gravVec = GRAVITY_VECTORS[gravityDirection];
+              const antiGravX = -gravVec[0] * 0.5 + (Math.random() - 0.5) * forceStrength;
+              const antiGravY = -gravVec[1] * 0.5 + (Math.random() - 0.5) * forceStrength;
+              const antiGravZ = -gravVec[2] * 0.5 + (Math.random() - 0.5) * forceStrength;
+              body.applyForce(
+                new CANNON.Vec3(
+                  antiGravX,
+                  antiGravY,
+                  antiGravZ
+                ),
+                new CANNON.Vec3(
+                  position[0] + (Math.random() - 0.5) * size[0],
+                  position[1] + (Math.random() - 0.5) * size[1],
+                  position[2] + (Math.random() - 0.5) * size[2]
+                )
+              );
             }
-            body.wakeUp();
-            const forceStrength = (50 + bass * 200) * (1 + blockPosHash);
-            const gravVec = GRAVITY_VECTORS[gravityDirection];
-            const antiGravX = -gravVec[0] * 0.5 + (Math.random() - 0.5) * forceStrength;
-            const antiGravY = -gravVec[1] * 0.5 + (Math.random() - 0.5) * forceStrength;
-            const antiGravZ = -gravVec[2] * 0.5 + (Math.random() - 0.5) * forceStrength;
-            body.applyForce(
-              new CANNON.Vec3(
-                antiGravX,
-                antiGravY,
-                antiGravZ
-              ),
-              new CANNON.Vec3(
-                position[0] + (Math.random() - 0.5) * size[0],
-                position[1] + (Math.random() - 0.5) * size[1],
-                position[2] + (Math.random() - 0.5) * size[2]
-              )
-            );
           }
         }
-      }
       }
     }
 
